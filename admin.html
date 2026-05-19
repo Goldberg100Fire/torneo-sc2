@@ -1837,6 +1837,15 @@
         const list = document.createElement("div");
         list.className = "players-list";
 
+        if (!Array.isArray(team.players) || team.players.length === 0) {
+          team.players = [""];
+        }
+
+        const addP = document.createElement("button");
+        addP.type = "button";
+        addP.className = "add-player";
+        addP.textContent = "+ Jugador (máx. " + MAX_PLAYERS_PER_TEAM + ")";
+
         function renderPlayers() {
           list.innerHTML = "";
           team.players.forEach((p, idx) => {
@@ -1860,29 +1869,23 @@
             rm.addEventListener("click", () => {
               if (team.players.length <= 1) return;
               team.players.splice(idx, 1);
-              save();
               renderPlayers();
+              save();
             });
             row.append(label, inp, rm);
             list.appendChild(row);
           });
+          addP.disabled = team.players.length >= MAX_PLAYERS_PER_TEAM;
         }
 
-        renderPlayers();
-        card.appendChild(list);
-
-        const addP = document.createElement("button");
-        addP.type = "button";
-        addP.className = "add-player";
-        addP.textContent = "+ Jugador (máx. " + MAX_PLAYERS_PER_TEAM + ")";
         addP.addEventListener("click", () => {
           if (team.players.length >= MAX_PLAYERS_PER_TEAM) return;
           team.players.push("");
-          save();
           renderPlayers();
+          save();
         });
-        if (team.players.length >= MAX_PLAYERS_PER_TEAM) addP.disabled = true;
-
+        renderPlayers();
+        card.appendChild(list);
         card.appendChild(addP);
         grid.appendChild(card);
       });

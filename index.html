@@ -1615,8 +1615,8 @@
             rm.addEventListener("click", () => {
               if (team.players.length <= 1) return;
               team.players.splice(idx, 1);
-              save();
               renderPlayers();
+              save();
             });
             row.append(label, inp, rm);
             list.appendChild(row);
@@ -1633,10 +1633,10 @@
         addP.addEventListener("click", () => {
           if (team.players.length >= MAX_PLAYERS_PER_TEAM) return;
           team.players.push("");
-          save();
           renderPlayers();
+          save();
         });
-        if (team.players.length >= MAX_PLAYERS_PER_TEAM) addP.disabled = true;
+        addP.disabled = team.players.length >= MAX_PLAYERS_PER_TEAM;
 
         card.appendChild(addP);
         grid.appendChild(card);
