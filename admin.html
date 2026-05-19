@@ -841,10 +841,23 @@
       return 8;
     }
 
+    function hasBracketData(p) {
+      if (!p?.drawn) return false;
+      return !!(
+        p.bracket?.wb?.length ||
+        p.bracket?.matches?.length ||
+        p.preliminary?.rounds?.length
+      );
+    }
+
     function choosePayload(local, cloud) {
       if (!local && !cloud) return null;
       if (!cloud) return local;
       if (!local) return cloud;
+      const localHas = hasBracketData(local);
+      const cloudHas = hasBracketData(cloud);
+      if (localHas && !cloudHas) return local;
+      if (cloudHas && !localHas) return cloud;
       if (local.drawn && !cloud.drawn) return local;
       if (!local.drawn && cloud.drawn) return cloud;
       const lt = Date.parse(local.savedAt || local.drawInfo?.drawnAt || 0) || 0;
@@ -854,7 +867,14 @@
 
     function persistLocal(payload) {
       const p = { ...payload, savedAt: new Date().toISOString() };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+        return true;
+      } catch (e) {
+        console.error("localStorage:", e);
+        showToast("No se pudo guardar en el navegador (memoria llena o bloqueada)");
+        return false;
+      }
     }
 
     function applyPayload(data) {
@@ -1044,29 +1064,32 @@
       }
     }
 
+    async function persistRemote(payload) {
+      let okFb = false;
+      let okSql = false;
+      if (isAdminLoggedIn()) okFb = await persistToFirestore(payload);
+      if (!isFileMode) okSql = await persistToDatabase(payload);
+      await pingSqliteBackend();
+      return { okFb, okSql };
+    }
+
     function save(silent) {
       syncTeamsFromDOM();
       const payload = getPayload();
       persistLocal(payload);
 
-      if (!isAdminLoggedIn()) {
-        if (!silent) showToast("Guardado en este navegador. Inicia sesión para sincronizar con la nube.");
-        updateStorageBadge();
-        return;
-      }
-
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
-        const okFb = await persistToFirestore(payload);
-        const okSql = await persistToDatabase(payload);
-        await pingSqliteBackend();
+        const { okFb, okSql } = await persistRemote(payload);
         updateStorageBadge();
         if (!silent) {
-          const rem = [];
+          const rem = ["navegador"];
           if (okFb) rem.push("Firestore");
-          if (okSql) rem.push("servidor local");
-          if (rem.length) showToast(`Guardado: ${rem.join(" + ")} + navegador`);
-          else if (isFileMode) showToast("Guardado en este navegador (usa Exportar JSON como copia)");
+          if (okSql) rem.push("servidor");
+          if (okFb || okSql) showToast("Guardado: " + rem.join(" + "));
+          else if (!isAdminLoggedIn() && window.FIREBASE_SC2_CONFIG?.enabled) {
+            showToast("Guardado aquí. Inicia sesión admin para Firestore.");
+          } else if (isFileMode) showToast("Guardado en este navegador (Exportar JSON como copia)");
           else showToast("Guardado en este navegador");
         }
       }, silent ? 400 : 0);
@@ -1710,7 +1733,7 @@
       }
     }
 
-    function drawBracket() {
+    async function drawBracket() {
       syncTeamsFromDOM();
       const valid = state.teams.filter((t) => t.name.trim());
       if (valid.length < 2) {
@@ -1730,10 +1753,22 @@
       state.drawn = true;
       assignPrelimFormats();
       autoByeAdvance();
-      persistLocal(getPayload());
-      save(false);
+
+      const payload = getPayload();
+      if (!persistLocal(payload)) {
+        alert("No se pudo guardar el sorteo en este navegador. Usa Exportar JSON como copia.");
+      }
+
+      const { okFb, okSql } = await persistRemote(payload);
       renderBracket();
-      showToast("Sorteo guardado · cruces listos");
+
+      const parts = ["Sorteo listo"];
+      if (okFb) parts.push("Firestore");
+      if (okSql) parts.push("servidor");
+      if (!okFb && window.FIREBASE_SC2_CONFIG?.enabled && !isAdminLoggedIn()) {
+        parts.push("(inicia sesión admin para guardar en la nube)");
+      }
+      showToast(parts.join(" · "));
     }
 
     function syncTeamsFromDOM() {
@@ -2514,6 +2549,9 @@
     }
 
     async function fetchCloudPayload() {
+      let fromFirestore = null;
+      let fromServer = null;
+
       if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
         try {
           const cfg = window.FIREBASE_SC2_CONFIG;
@@ -2521,24 +2559,27 @@
           const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió");
           if (snap.exists) {
             const d = snap.data();
-            return d.payload != null ? d.payload : d.data;
+            fromFirestore = d.payload != null ? d.payload : d.data;
           }
         } catch (e) {
           console.warn("Firestore lectura:", e);
         }
       }
+
       if (!isFileMode) {
         try {
           const res = await fetch(API);
           if (res.ok) {
             const json = await res.json();
-            if (json.data) return json.data;
+            if (json.data) fromServer = json.data;
           }
         } catch (e) {
           /* sin servidor */
         }
       }
-      return null;
+
+      if (fromFirestore && fromServer) return choosePayload(fromServer, fromFirestore) || fromFirestore;
+      return fromFirestore || fromServer;
     }
 
     async function syncFromCloud() {
@@ -2565,12 +2606,15 @@
       }
 
       const cloud = await fetchCloudPayload();
-      const merged = choosePayload(local, cloud);
+      let merged = choosePayload(local, cloud);
+      if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
+        merged = local;
+      }
       if (merged) {
         applyPayload(merged);
         persistLocal(merged);
         renderAll();
-        if (firebaseReady && cloud) showToast("Sincronizado con Firestore");
+        if (firebaseReady && cloud) showToast("Sincronizado con la nube");
       }
 
       updateStorageBadge();
