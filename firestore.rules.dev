@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// SOLO para pruebas. Cualquiera con la URL puede leer/escribir.
+// Para producción: exige Firebase Auth y comprueba uid o custom claims.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /torneos_sc2/{documentId} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,0 +1,77 @@
+================================================================================
+  TORNEO STARCRAFT — Crear proyecto Firebase + Firestore (paso a paso)
+================================================================================
+
+PARTE A — Crear el proyecto en Firebase
+---------------------------------------
+1. Abre: https://console.firebase.google.com
+2. Clic en "Agregar proyecto" (o "Crear un proyecto").
+3. Nombre sugerido: torneo-sc2 (o el que quieras).
+4. Google Analytics: puedes desactivarlo (no hace falta para Firestore).
+5. Clic en "Crear proyecto" y espera a que termine.
+
+PARTE B — Activar Firestore (base de datos)
+-------------------------------------------
+6. En el menú izquierdo: "Compilación" > "Firestore Database".
+7. Clic en "Crear base de datos".
+8. Ubicación: elige la más cercana (ej. southamerica-east1 o europe-west).
+   (No se puede cambiar después; elige bien para latencia.)
+9. Modo de inicio:
+   - Para PRUEBAS rápidas: "Modo de prueba" (permite leer/escribir 30 días).
+   - Para seguir nuestras reglas: "Modo de producción" y luego pega las reglas (parte C).
+
+PARTE C — Reglas de Firestore (obligatorio)
+-------------------------------------------
+10. Pestaña "Reglas" en Firestore.
+11. Sustituye por el archivo firestore.rules de esta carpeta (lectura pública, escritura solo admin).
+12. Clic en "Publicar".
+
+PARTE C2 — Usuario administrador
+--------------------------------
+13. Firebase → Authentication → Comenzar → Correo/contraseña.
+14. Agregar usuario (correo + contraseña) para entrar en admin.html.
+
+PARTE D — Registrar la app web y copiar la configuración
+--------------------------------------------------------
+13. Icono de engranaje > "Configuración del proyecto".
+14. Baja a "Tus apps" > clic en el icono "</>" (Web).
+15. Apodo: torneo-web > "Registrar app".
+16. Copia el objeto firebaseConfig que muestra (apiKey, projectId, etc.).
+17. En esta carpeta:
+    - Copia firebase-config.example.js → firebase-config.local.js
+    - Pega tus valores en firebaseConfig
+    - Pon enabled: true
+
+PARTE E — Probar en tu PC (SIN comandos)
+----------------------------------------
+18. Doble clic en:  Abrir torneo.bat   (o en index.html)
+
+19. La app guarda en el navegador de este PC. Usa Exportar JSON como copia.
+
+20. Firestore desde archivo local (file://) a veces NO funciona en el navegador.
+    Para nube sin npm cada día: publica la carpeta en Firebase Hosting (una vez)
+    y abre la URL https://tu-proyecto.web.app
+
+    (npm start es OPCIONAL, solo si quieres servidor SQLite local.)
+21. Añade un equipo, pulsa Guardar.
+22. En Firebase Console > Firestore > Datos:
+    Colección: torneos_sc2
+    Documento: principal
+    Campo: payload (mapa con equipos y bracket)
+
+PARTE F — Si algo falla
+-----------------------
+- F12 > Consola: busca "Firestore escritura" o "permission-denied".
+  → Revisa que publicaste las reglas (parte C).
+- "Firebase activado pero falta apiKey" → rellena firebase-config.local.js.
+- Sigue en "Solo navegador" → enabled no está en true o projectId vacío.
+- permission-denied → reglas demasiado restrictivas; usa firestore.rules.dev temporalmente.
+
+================================================================================
+  Estructura guardada en Firestore
+================================================================================
+  torneos_sc2 / principal
+    ├── payload   (objeto JSON: teams, bracket, drawn, teamIdCounter)
+    └── updatedAt (marca de tiempo del servidor)
+
+================================================================================

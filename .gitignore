@@ -1,0 +1,9 @@
+node_modules/
+data/
+firebase-config.local.js
+terminals/
+mcps/
+agent-transcripts/
+assets/
+*.bak*
+index.html.bak-adminclone

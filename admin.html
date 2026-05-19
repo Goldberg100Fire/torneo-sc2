@@ -1,0 +1,2674 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administración · Torneo StarCraft</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --panel: #121a24;
+      --panel-border: #1e3a5f;
+      --accent: #00d4ff;
+      --accent-dim: #0099bb;
+      --gold: #c9a227;
+      --gold-dim: #8a7020;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+      --text: #e8eef4;
+      --muted: #7a8fa6;
+      --winners: #1a4d6e;
+      --losers: #4a2a4a;
+      --grand: #3d3520;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Rajdhani", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 212, 255, 0.12), transparent),
+        radial-gradient(ellipse 60% 40% at 100% 100%, rgba(201, 162, 39, 0.06), transparent);
+    }
+
+    header {
+      text-align: center;
+      padding: 1.5rem 1rem;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    header h1 {
+      font-family: "Orbitron", sans-serif;
+      font-size: clamp(1.4rem, 4vw, 2rem);
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+    }
+
+    header p { color: var(--muted); margin-top: 0.35rem; font-size: 1.05rem; }
+
+    main { max-width: 1400px; margin: 0 auto; padding: 1.25rem; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+    }
+
+    .format-info {
+      flex: 1;
+      min-width: 220px;
+      font-size: 0.95rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .format-info strong { color: var(--gold); }
+
+    .db-status {
+      font-size: 0.85rem;
+      font-weight: 700;
+      padding: 0.4rem 0.65rem;
+      border-radius: 4px;
+      border: 1px solid var(--panel-border);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .db-status.online {
+      color: var(--success);
+      border-color: var(--success);
+    }
+
+    .db-status.offline {
+      color: #e8a84a;
+      border-color: #8a7020;
+    }
+
+    .advantage-tag {
+      display: inline-block;
+      margin-top: 0.35rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--gold);
+      border: 1px solid var(--gold-dim);
+      border-radius: 3px;
+    }
+
+    select, input[type="text"] {
+      font-family: inherit;
+      font-size: 1rem;
+      padding: 0.45rem 0.65rem;
+      background: var(--bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      border-radius: 4px;
+      min-width: 120px;
+    }
+
+    input[type="number"] {
+      font-family: inherit;
+      font-size: 1.1rem;
+      width: 3rem;
+      text-align: center;
+      padding: 0.35rem;
+      background: var(--bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      border-radius: 4px;
+    }
+
+    input[type="datetime-local"] {
+      font-family: inherit;
+      font-size: 0.95rem;
+      width: 100%;
+      padding: 0.4rem 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+    }
+
+    .datetime-label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .match-datetime {
+      font-size: 0.9rem;
+      color: var(--accent);
+      text-align: center;
+      margin-top: 0.4rem;
+      padding-top: 0.35rem;
+      border-top: 1px solid var(--panel-border);
+    }
+
+    button {
+      font-family: "Rajdhani", sans-serif;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      transition: transform 0.1s, box-shadow 0.15s;
+    }
+
+    button:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+      color: #001018;
+    }
+
+    .btn-primary:hover { box-shadow: 0 0 16px rgba(0, 212, 255, 0.45); }
+
+    .btn-gold {
+      background: linear-gradient(180deg, var(--gold), var(--gold-dim));
+      color: #1a1408;
+    }
+
+    .btn-gold:hover { box-shadow: 0 0 16px rgba(201, 162, 39, 0.4); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--panel-border);
+    }
+
+    .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+      font-size: 0.85rem;
+      padding: 0.3rem 0.5rem;
+    }
+
+    .btn-confirm {
+      background: var(--success);
+      color: #0a1a0f;
+      margin-top: 0.5rem;
+      width: 100%;
+    }
+
+    .btn-confirm:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    section { margin-bottom: 2rem; }
+
+    section h2 {
+      font-family: "Orbitron", sans-serif;
+      font-size: 1rem;
+      letter-spacing: 0.1em;
+      margin-bottom: 1rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 2px solid var(--panel-border);
+    }
+
+    section h2.winners { color: #5eb8e8; border-color: var(--winners); }
+    section h2.losers { color: #c98bc9; border-color: var(--losers); }
+    section h2.grand { color: var(--gold); border-color: var(--gold-dim); }
+
+    .bracket-flow {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+
+    .bracket-flow .bracket-guide-lines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+      overflow: visible;
+    }
+
+    .bracket-flow .bracket-rounds {
+      position: relative;
+      z-index: 2;
+    }
+
+    .bracket-flow .round-column,
+    .bracket-flow .match-slot {
+      position: relative;
+      z-index: 2;
+    }
+
+    .teams-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .team-card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+
+    .team-card header {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0;
+      border: none;
+      margin-bottom: 0.75rem;
+    }
+
+    .team-card header input { flex: 1; font-weight: 700; }
+
+    .players-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
+    .player-row {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+
+    .player-row input { flex: 1; }
+
+    .player-row span {
+      color: var(--muted);
+      font-size: 0.85rem;
+      min-width: 1.2rem;
+    }
+
+    .add-player {
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--accent);
+      background: none;
+      border: 1px dashed var(--panel-border);
+      width: 100%;
+      padding: 0.35rem;
+    }
+
+    .add-player:hover { border-color: var(--accent); }
+
+    .add-team-wrap { margin-top: 1rem; }
+
+    .bracket-rounds {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      align-items: flex-start;
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+
+    .round-column {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 260px;
+    }
+
+    .round-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .match-card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 0.85rem;
+      position: relative;
+    }
+
+    .match-card.confirmed { border-color: var(--success); opacity: 0.92; }
+    .match-card.pending-feed { border-style: dashed; opacity: 0.75; }
+    .match-card.bye { opacity: 0.55; }
+
+    .match-card .match-id {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .match-teams {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .match-team {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.35rem 0.5rem;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    .match-team.winner {
+      background: rgba(46, 204, 113, 0.2);
+      border-left: 3px solid var(--success);
+    }
+
+    .match-team.loser { opacity: 0.55; }
+    .match-team.tbd { color: var(--muted); font-style: italic; }
+    .match-team.bye-team { color: var(--muted); }
+
+    .result-block {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      padding: 0.65rem;
+    }
+
+    .result-block h4 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--gold);
+      margin-bottom: 0.5rem;
+    }
+
+    .score-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .score-row .vs { color: var(--muted); font-weight: 700; }
+
+    .score-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 0.35rem;
+    }
+
+    .result-error {
+      color: var(--danger);
+      font-size: 0.8rem;
+      margin-top: 0.35rem;
+      min-height: 1.1em;
+    }
+
+    .grand-section .match-card {
+      max-width: 360px;
+      border-color: var(--gold-dim);
+      background: linear-gradient(145deg, var(--panel), #1a1810);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--panel);
+      border: 1px solid var(--success);
+      color: var(--success);
+      padding: 0.65rem 1rem;
+      border-radius: 6px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.25s, transform 0.25s;
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    .empty-bracket {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      border: 1px dashed var(--panel-border);
+      border-radius: 8px;
+    }
+
+    .champion-banner {
+      text-align: center;
+      padding: 1rem;
+      margin-top: 1rem;
+      background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.15), transparent);
+      border: 1px solid var(--gold-dim);
+      border-radius: 8px;
+      display: none;
+    }
+
+    .champion-banner.visible { display: block; }
+
+    .top-nav {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--panel-border);
+      flex-wrap: wrap;
+    }
+
+    .top-nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .top-nav a:hover { text-decoration: underline; }
+
+    .login-screen {
+      max-width: 400px;
+      margin: 3rem auto;
+      padding: 2rem;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+    }
+
+    .login-screen h2 {
+      font-family: "Orbitron", sans-serif;
+      color: var(--accent);
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    .login-screen label {
+      display: block;
+      margin-bottom: 0.75rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .login-screen input {
+      width: 100%;
+      margin-top: 0.25rem;
+    }
+
+    .login-screen .btn-primary { width: 100%; margin-top: 0.5rem; }
+
+    .login-error {
+      color: var(--danger);
+      font-size: 0.9rem;
+      min-height: 1.2em;
+      margin-top: 0.5rem;
+    }
+
+    .admin-user-bar {
+      text-align: center;
+      padding: 0.5rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .bracket-rounds.knockout-view {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0;
+      overflow-x: auto;
+      padding: 0.5rem 0 1rem;
+      align-items: flex-start;
+    }
+
+    .knockout-view .round-column {
+      flex: 1;
+      min-width: 260px;
+      padding: 0 1.25rem 0 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      justify-content: flex-start;
+      align-items: stretch;
+    }
+
+    .knockout-view .round-column .round-label {
+      margin-bottom: 0.15rem;
+      flex-shrink: 0;
+    }
+
+    .knockout-view .match-slot.bracket-node {
+      flex-shrink: 0;
+    }
+
+    .knockout-view .match-slot {
+      margin: 0;
+    }
+
+    .knockout-view .round-column:not(:last-child) {
+      border-right: 1px solid var(--panel-border);
+    }
+
+    .match-slot {
+      position: relative;
+      margin: 0.65rem 0;
+    }
+
+    .match-guide {
+      margin-top: 0.65rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--panel-border);
+    }
+
+    .match-guide-title {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .guide-link {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      width: 100%;
+      margin: 0.22rem 0;
+      padding: 0.38rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--panel-border);
+      background: rgba(0, 0, 0, 0.28);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.82rem;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .guide-link:hover {
+      border-color: var(--accent);
+      background: rgba(0, 212, 255, 0.08);
+    }
+
+    .guide-link.guide-winner { border-left: 3px solid var(--accent); }
+    .guide-link.guide-loser { border-left: 3px solid #c98bc9; }
+
+    .guide-arrow-icon {
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+
+    .guide-link.guide-loser .guide-arrow-icon { color: #c98bc9; }
+
+    .guide-path {
+      font-weight: 700;
+      color: var(--muted);
+      min-width: 4.6rem;
+    }
+
+    .guide-target {
+      color: var(--gold);
+      flex: 1;
+    }
+
+    .match-slot.guide-highlight .match-card {
+      box-shadow: 0 0 0 2px var(--accent), 0 0 20px rgba(0, 212, 255, 0.4);
+      animation: guide-pulse 0.75s ease-in-out 2;
+    }
+
+    @keyframes guide-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.015); }
+    }
+
+    .advance-arrow {
+      font-size: 0.8rem;
+      color: var(--success);
+      margin-top: 0.35rem;
+      padding: 0.25rem 0.4rem;
+      background: rgba(46, 204, 113, 0.1);
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .match-team.winner::after {
+      content: " ▶";
+      color: var(--success);
+      font-size: 0.75rem;
+    }
+
+    .champion-banner strong {
+      font-family: "Orbitron", sans-serif;
+      color: var(--gold);
+      font-size: 1.2rem;
+    }
+
+    @media (max-width: 600px) {
+      .toolbar { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="top-nav">
+    <a href="index.html">Vista pública</a>
+    <span style="color: var(--muted)">|</span>
+    <strong style="color: var(--gold)">Panel administrador</strong>
+  </nav>
+
+  <section id="loginScreen" class="login-screen">
+    <h2>ACCESO ADMIN</h2>
+    <p style="color: var(--muted); margin-bottom: 1rem; text-align: center; font-size: 0.95rem;">
+      Solo personal autorizado puede modificar equipos y resultados.
+    </p>
+    <label>Correo<input type="email" id="adminEmail" autocomplete="username" /></label>
+    <label>Contraseña<input type="password" id="adminPassword" autocomplete="current-password" /></label>
+    <div class="login-error" id="loginError"></div>
+    <button type="button" class="btn-primary" id="btnLogin">Iniciar sesión</button>
+    <p style="color: var(--muted); font-size: 0.8rem; margin-top: 1rem;">
+      Crea el usuario en Firebase → Authentication → Correo/contraseña.
+    </p>
+  </section>
+
+  <div id="adminApp" hidden>
+  <div class="admin-user-bar">
+    <span id="adminUserLabel"></span>
+    <button type="button" class="btn-ghost" id="btnLogout" style="margin-left: 0.5rem;">Cerrar sesión</button>
+  </div>
+  <header>
+    <h1>TORNEO STARCRAFT</h1>
+    <p>BO5 rondas iniciales · BO7 semifinales · BO9 gran final (Winners +1)</p>
+  </header>
+
+  <main>
+    <div class="toolbar" id="toolbar">
+      <p class="format-info">
+        <strong>Formatos:</strong> rondas iniciales BO5 · semifinales BO7 · gran final BO9
+        (campeón Winners empieza 1–0).
+        <strong>8 / 16 / 32 / 64 equipos:</strong> sorteo directo.
+        <strong>Otra cantidad:</strong> preliminar hasta la potencia más cercana; perdedores van a repechaje preliminar.
+        El sorteo se guarda automáticamente en el navegador.
+      </p>
+      <button type="button" class="btn-gold" id="btnDraw">Sortear cruces</button>
+      <button type="button" class="btn-primary" id="btnSave">Guardar</button>
+      <button type="button" class="btn-ghost" id="btnExport">Exportar JSON</button>
+      <button type="button" class="btn-ghost" id="btnImport">Importar JSON</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden />
+      <button type="button" class="btn-ghost" id="btnReset">Reiniciar torneo</button>
+      <span class="db-status" id="dbStatus" title="Estado del guardado">Solo navegador</span>
+    </div>
+
+    <section id="teamsSection">
+      <h2>EQUIPOS</h2>
+      <div class="teams-grid" id="teamsGrid"></div>
+      <div class="add-team-wrap">
+        <button type="button" class="btn-ghost" id="btnAddTeam">+ Añadir equipo</button>
+      </div>
+    </section>
+
+    <section id="bracketSection" hidden>
+      <div id="drawInfoBanner" class="format-info" style="margin-bottom:1rem;display:none;"></div>
+      <h2 class="winners" id="winnersTitle">BRACKET WINNERS</h2>
+      <div class="bracket-flow" id="winnersFlow">
+        <div class="bracket-rounds knockout-view" id="winnersBracket"></div>
+      </div>
+
+      <h2 class="losers" style="margin-top: 2rem;">REPECHAJE</h2>
+      <div class="bracket-flow" id="losersFlow">
+        <div class="bracket-rounds knockout-view" id="losersBracket"></div>
+      </div>
+
+      <h2 class="grand" style="margin-top: 2rem;">GRAN FINAL</h2>
+      <div class="bracket-flow grand-section" id="grandFlow">
+        <div class="bracket-rounds knockout-view" id="grandBracket"></div>
+      </div>
+
+      <div class="champion-banner" id="championBanner">
+        Campeón: <strong id="championName">—</strong>
+      </div>
+    </section>
+
+    <section id="emptyBracket">
+      <div class="empty-bracket">
+        Añade al menos 2 equipos con nombre y pulsa <strong>Sortear cruces</strong> para generar el cuadro.
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast">Guardado en localStorage</div>
+  </div>
+
+  <!-- Config Firebase (antes del script principal) -->
+  <script>
+    window.FIREBASE_SC2_CONFIG = window.FIREBASE_SC2_CONFIG || { enabled: false, firebaseConfig: {} };
+  </script>
+  <script src="firebase-config.local.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <script>
+    const STORAGE_KEY = "sc2-tournament-v2";
+    const API = "/api/tournament";
+    /** true = abriste index.html con doble clic (sin servidor Node) */
+    const isFileMode = location.protocol === "file:";
+
+    const BRACKET_SIZES = [8, 16, 32, 64];
+
+    const state = {
+      teams: [],
+      bracket: null,
+      preliminary: null,
+      drawInfo: null,
+      drawn: false,
+    };
+
+    let teamIdCounter = 1;
+    let saveTimer = null;
+    let firebaseReady = false;
+    let firestoreDb = null;
+    let firebaseAuth = null;
+    let firebaseInitError = "";
+    let adminAppStarted = false;
+    /** Servidor SQLite (npm start) responde en /api/health */
+    let sqliteListening = false;
+
+    function withTimeout(promise, ms, label) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(label || "Tiempo de espera agotado")), ms)
+        ),
+      ]);
+    }
+
+    function winsNeeded(match) {
+      const bo = match?.bestOf ?? 5;
+      return Math.ceil(bo / 2);
+    }
+
+    function isGrandWithAdvantage(match) {
+      return match.bracket === "grand" && match.wbAdvantage;
+    }
+
+    function grandWbTeamId(match) {
+      if (!isGrandWithAdvantage(match)) return null;
+      return resolveFeed(match.feedA);
+    }
+
+    function uid() {
+      return "t" + teamIdCounter++;
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 2200);
+    }
+
+    function createTeam(name = "", players = [""]) {
+      return { id: uid(), name, players: players.slice(0, 5) };
+    }
+
+    function getPayload() {
+      return {
+        teams: state.teams,
+        bracket: state.bracket,
+        preliminary: state.preliminary,
+        drawInfo: state.drawInfo,
+        drawn: state.drawn,
+        teamIdCounter,
+        savedAt: new Date().toISOString(),
+      };
+    }
+
+    function getTargetSize(n) {
+      if (BRACKET_SIZES.includes(n)) return n;
+      if (n > 64) return null;
+      if (n > 32) return 32;
+      if (n > 16) return 16;
+      if (n > 8) return 8;
+      return 8;
+    }
+
+    function choosePayload(local, cloud) {
+      if (!local && !cloud) return null;
+      if (!cloud) return local;
+      if (!local) return cloud;
+      if (local.drawn && !cloud.drawn) return local;
+      if (!local.drawn && cloud.drawn) return cloud;
+      const lt = Date.parse(local.savedAt || local.drawInfo?.drawnAt || 0) || 0;
+      const ct = Date.parse(cloud.savedAt || cloud.drawInfo?.drawnAt || 0) || 0;
+      return lt >= ct ? local : cloud;
+    }
+
+    function persistLocal(payload) {
+      const p = { ...payload, savedAt: new Date().toISOString() };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    }
+
+    function applyPayload(data) {
+      if (!data) return;
+      state.teams = data.teams || [];
+      state.bracket = data.bracket || null;
+      state.preliminary = data.preliminary || null;
+      state.drawInfo = data.drawInfo || null;
+      state.drawn = !!data.drawn;
+      if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
+      if (state.bracket) {
+        if (!state.bracket.size && state.bracket.wb?.length) {
+          state.bracket.size = Math.pow(2, state.bracket.wb.length);
+        }
+        assignMatchFormats(state.bracket);
+      }
+      assignPrelimFormats();
+    }
+
+    function clearBracketState() {
+      state.drawn = false;
+      state.bracket = null;
+      state.preliminary = null;
+      state.drawInfo = null;
+    }
+
+    function initFirebaseFromConfig() {
+      firebaseReady = false;
+      firestoreDb = null;
+      firebaseInitError = "";
+      if (typeof firebase === "undefined") {
+        firebaseInitError = "SDK Firebase no cargó (¿sin internet?)";
+        return;
+      }
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      if (!cfg || cfg.enabled !== true) return;
+      const fc = cfg.firebaseConfig;
+      if (!fc || !fc.apiKey || !fc.projectId) {
+        firebaseInitError = "Falta apiKey o projectId en firebase-config.local.js";
+        console.warn(firebaseInitError);
+        return;
+      }
+      try {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(fc);
+        }
+        firestoreDb = firebase.firestore();
+        firebaseAuth = firebase.auth();
+        firebaseReady = true;
+      } catch (e) {
+        firebaseInitError = e.message || String(e);
+        console.warn("Firebase init:", e);
+      }
+    }
+
+    /** Actualiza la etiqueta de almacenamiento sin asumir última escritura OK */
+    function updateStorageBadge() {
+      const el = document.getElementById("dbStatus");
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      if (cfg?.enabled === true && firebaseInitError) {
+        el.textContent = "Firebase: error";
+        el.title = firebaseInitError;
+        el.className = "db-status offline";
+        return;
+      }
+      if (isFileMode && !firebaseReady) {
+        el.textContent = "Este PC (archivo local)";
+        el.title =
+          "Guardado en el navegador. Exporta JSON como copia. Firestore puede requerir publicar la web (Firebase Hosting).";
+        el.className = "db-status offline";
+        return;
+      }
+      const parts = [];
+      if (firebaseReady) parts.push("Firestore");
+      if (sqliteListening) parts.push("SQLite");
+      parts.push("navegador");
+      el.textContent = parts.join(" · ");
+      el.title = "Estado del guardado";
+      const anyRemote = firebaseReady || sqliteListening;
+      el.className = "db-status" + (anyRemote ? " online" : " offline");
+    }
+
+    async function pingSqliteBackend() {
+      sqliteListening = false;
+      if (isFileMode) return;
+      try {
+        const res = await fetch("/api/health");
+        sqliteListening = res.ok;
+      } catch (e) {
+        sqliteListening = false;
+      }
+    }
+
+    async function loadFromFirestore() {
+      if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      const col = cfg.firestoreCollection;
+      const doc = cfg.firestoreDocumentId;
+      try {
+        const ref = firestoreDb.collection(col).doc(doc);
+        const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
+        if (!snap.exists) return false;
+        const d = snap.data();
+        const payload = d.payload != null ? d.payload : d.data;
+        if (!payload || typeof payload !== "object") return false;
+        applyPayload(payload);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        return true;
+      } catch (e) {
+        console.warn("Firestore lectura:", e);
+        return false;
+      }
+    }
+
+    function isAdminLoggedIn() {
+      return !!(firebaseAuth && firebaseAuth.currentUser);
+    }
+
+    async function persistToFirestore(payload) {
+      if (!isAdminLoggedIn()) return false;
+      if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      const col = cfg.firestoreCollection;
+      const doc = cfg.firestoreDocumentId;
+      try {
+        const ref = firestoreDb.collection(col).doc(doc);
+        await withTimeout(
+          ref.set(
+            {
+              payload,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          ),
+          8000,
+          "Firestore no respondió al guardar"
+        );
+        return true;
+      } catch (e) {
+        console.warn("Firestore escritura:", e);
+        return false;
+      }
+    }
+
+    async function loadFromDatabase() {
+      if (isFileMode) return false;
+      try {
+        const res = await fetch(API);
+        if (!res.ok) throw new Error("API " + res.status);
+        const json = await res.json();
+        if (json.data) {
+          applyPayload(json.data);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
+          return true;
+        }
+        return false;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function persistToDatabase(payload) {
+      if (isFileMode) return false;
+      try {
+        const res = await fetch(API, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("API " + res.status);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function loadFromLocalStorage() {
+      try {
+        let raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
+        if (!raw) return false;
+        applyPayload(JSON.parse(raw));
+        return true;
+      } catch (e) {
+        console.warn("localStorage corrupto", e);
+        return false;
+      }
+    }
+
+    function save(silent) {
+      syncTeamsFromDOM();
+      const payload = getPayload();
+      persistLocal(payload);
+
+      if (!isAdminLoggedIn()) {
+        if (!silent) showToast("Guardado en este navegador. Inicia sesión para sincronizar con la nube.");
+        updateStorageBadge();
+        return;
+      }
+
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        const okFb = await persistToFirestore(payload);
+        const okSql = await persistToDatabase(payload);
+        await pingSqliteBackend();
+        updateStorageBadge();
+        if (!silent) {
+          const rem = [];
+          if (okFb) rem.push("Firestore");
+          if (okSql) rem.push("servidor local");
+          if (rem.length) showToast(`Guardado: ${rem.join(" + ")} + navegador`);
+          else if (isFileMode) showToast("Guardado en este navegador (usa Exportar JSON como copia)");
+          else showToast("Guardado en este navegador");
+        }
+      }, silent ? 400 : 0);
+    }
+
+    async function clearDatabase() {
+      if (isFileMode) return;
+      try {
+        await fetch(API, { method: "DELETE" });
+      } catch (e) {
+        /* servidor apagado */
+      }
+    }
+
+    function exportBackup() {
+      syncTeamsFromDOM();
+      const blob = new Blob([JSON.stringify(getPayload(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `torneo-sc2-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Copia de seguridad descargada");
+    }
+
+    function importBackup(file) {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const data = JSON.parse(reader.result);
+          applyPayload(data);
+          save(false);
+          renderTeams();
+          renderBracket();
+          showToast("Torneo importado");
+        } catch (e) {
+          alert("Archivo JSON inválido");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function teamById(id) {
+      if (!id) return null;
+      if (id.startsWith("bye-")) return { id, name: "BYE", players: [], isBye: true };
+      return state.teams.find((t) => t.id === id) || null;
+    }
+
+    function teamDisplayName(id) {
+      const t = teamById(id);
+      return t ? t.name || "(sin nombre)" : "Por definir";
+    }
+
+    function nextPowerOf2(n) {
+      let p = 1;
+      while (p < n) p <<= 1;
+      return p;
+    }
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function makeMatch(mkId, bracket, round, index) {
+      return {
+        id: mkId(),
+        bracket,
+        round,
+        index,
+        teamA: null,
+        teamB: null,
+        scoreA: null,
+        scoreB: null,
+        winner: null,
+        loser: null,
+        confirmed: false,
+        feedA: null,
+        feedB: null,
+        bestOf: 5,
+        wbAdvantage: false,
+        playedAt: null,
+      };
+    }
+
+    function defaultDateTimeLocal() {
+      const d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
+    function dateTimeLocalToIso(localValue) {
+      if (!localValue) return null;
+      const d = new Date(localValue);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+
+    function isoToDateTimeLocal(iso) {
+      if (!iso) return defaultDateTimeLocal();
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return defaultDateTimeLocal();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
+    function formatPlayedAt(iso) {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleString("es", {
+          weekday: "short",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      } catch (e) {
+        return iso;
+      }
+    }
+
+    function assignPrelimFormats() {
+      const setBo5 = (rounds) => {
+        if (!rounds) return;
+        rounds.forEach((round) => round.forEach((m) => { m.bestOf = 5; }));
+      };
+      setBo5(state.preliminary?.rounds);
+      setBo5(state.preliminary?.loserRounds);
+    }
+
+    /** Rondas iniciales BO5 · semifinales BO7 · gran final BO9 */
+    function assignMatchFormats(bracket) {
+      const n = bracket.size;
+      const wbRounds = Math.log2(n);
+      const wbFinalId = bracket.wb[wbRounds - 1][0].id;
+      const lbChampId = bracket.grand.feedB.matchId;
+
+      for (const match of bracket.matches) {
+        if (match.bracket === "grand") {
+          match.bestOf = 9;
+          match.wbAdvantage = true;
+          continue;
+        }
+
+        if (match.bracket === "winners") {
+          const isSemi =
+            (wbRounds >= 3 && match.round === wbRounds - 2) ||
+            (wbRounds === 2 && match.round === 1);
+          match.bestOf = isSemi ? 7 : 5;
+          continue;
+        }
+
+        if (match.bracket === "losers") {
+          const roundLen = bracket.lb[match.round]?.length ?? 0;
+          const isLbFinal = match.id === lbChampId;
+          const isLbSemi = roundLen === 2 && match.round > 0 && !isLbFinal;
+          match.bestOf = isLbFinal || isLbSemi ? 7 : 5;
+        }
+      }
+    }
+
+    function feed(match, slot) {
+      return { matchId: match.id, slot };
+    }
+
+    /** Doble eliminación (4 / 8 / 16 equipos, potencia de 2) */
+    function buildBracket(seededTeamIds) {
+      const n = seededTeamIds.length;
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `m-${seq++}`;
+      const wbRounds = Math.log2(n);
+      const wb = [];
+
+      for (let r = 0; r < wbRounds; r++) {
+        wb[r] = [];
+        const count = n / Math.pow(2, r + 1);
+        for (let m = 0; m < count; m++) {
+          const match = makeMatch(mkId, "winners", r, m);
+          matches.push(match);
+          wb[r].push(match);
+        }
+      }
+
+      for (let m = 0; m < wb[0].length; m++) {
+        wb[0][m].teamA = seededTeamIds[m * 2];
+        wb[0][m].teamB = seededTeamIds[m * 2 + 1];
+      }
+
+      for (let r = 1; r < wbRounds; r++) {
+        for (let m = 0; m < wb[r].length; m++) {
+          wb[r][m].feedA = feed(wb[r - 1][m * 2], "winner");
+          wb[r][m].feedB = feed(wb[r - 1][m * 2 + 1], "winner");
+        }
+      }
+
+      const lb = [];
+      lb[0] = [];
+      for (let m = 0; m < wb[0].length / 2; m++) {
+        const match = makeMatch(mkId, "losers", 0, m);
+        match.feedA = feed(wb[0][m * 2], "loser");
+        match.feedB = feed(wb[0][m * 2 + 1], "loser");
+        matches.push(match);
+        lb[0].push(match);
+      }
+
+      let lbR = 1;
+      let wbDrop = 1;
+
+      while (lbR < 20) {
+        const prev = lb[lbR - 1];
+        if (!prev?.length) break;
+
+        if (wbDrop < wbRounds) {
+          lb[lbR] = [];
+          const wbRound = wb[wbDrop];
+          for (let i = 0; i < wbRound.length; i++) {
+            const match = makeMatch(mkId, "losers", lbR, i);
+            match.feedA = feed(prev[i], "winner");
+            match.feedB = feed(wbRound[i], "loser");
+            matches.push(match);
+            lb[lbR].push(match);
+          }
+          lbR++;
+          wbDrop++;
+
+          if (lb[lbR - 1].length > 1) {
+            lb[lbR] = [];
+            const prev2 = lb[lbR - 1];
+            for (let i = 0; i < prev2.length / 2; i++) {
+              const match = makeMatch(mkId, "losers", lbR, i);
+              match.feedA = feed(prev2[i * 2], "winner");
+              match.feedB = feed(prev2[i * 2 + 1], "winner");
+              matches.push(match);
+              lb[lbR].push(match);
+            }
+            lbR++;
+          }
+        } else {
+          break;
+        }
+      }
+
+      const wbFinal = wb[wbRounds - 1][0];
+      const lastLbRound = lb[lbR - 1];
+      if (!lastLbRound?.length) throw new Error("Cuadro de repechaje inválido");
+      const lastLb = lastLbRound[0];
+      const feedsWbFinalLoser =
+        lastLb.feedA?.matchId === wbFinal.id ||
+        lastLb.feedB?.matchId === wbFinal.id;
+
+      let lbChamp = lastLb;
+      if (!feedsWbFinalLoser) {
+        lbChamp = makeMatch(mkId, "losers", lbR, 0);
+        lbChamp.feedA = feed(lastLb, "winner");
+        lbChamp.feedB = feed(wbFinal, "loser");
+        matches.push(lbChamp);
+        lb[lbR] = [lbChamp];
+      }
+
+      const grand = makeMatch(mkId, "grand", 0, 0);
+      grand.feedA = feed(wbFinal, "winner");
+      grand.feedB = feed(lbChamp, "winner");
+      matches.push(grand);
+
+      const result = { matches, wb, lb: lb.filter((r) => r?.length), grand, size: n };
+      assignMatchFormats(result);
+      return result;
+    }
+
+    function buildBracketSimple(seededTeamIds) {
+      const n = seededTeamIds.length;
+      const matches = [];
+      let mid = 0;
+      const mkId = (p) => p + "-" + mid++;
+
+      if (n === 2) {
+        const wb = {
+          id: mkId("wb-final"),
+          bracket: "winners",
+          round: 0,
+          index: 0,
+          teamA: seededTeamIds[0],
+          teamB: seededTeamIds[1],
+          scoreA: null,
+          scoreB: null,
+          winner: null,
+          loser: null,
+          confirmed: false,
+          feedA: null,
+          feedB: null,
+          bestOf: 5,
+          wbAdvantage: false,
+          playedAt: null,
+        };
+        matches.push(wb);
+        const grand = {
+          id: mkId("grand-final"),
+          bracket: "grand",
+          round: 0,
+          index: 0,
+          teamA: null,
+          teamB: null,
+          scoreA: null,
+          scoreB: null,
+          winner: null,
+          loser: null,
+          confirmed: false,
+          feedA: { matchId: wb.id, slot: "winner" },
+          feedB: { matchId: wb.id, slot: "loser" },
+          bestOf: 9,
+          wbAdvantage: true,
+          playedAt: null,
+        };
+        matches.push(grand);
+        const result = { matches, wb: [[wb]], lb: [], grand, size: 2 };
+        assignMatchFormats(result);
+        return result;
+      }
+
+      return buildBracket(seededTeamIds);
+    }
+
+    function getAllMatchesList() {
+      const list = state.bracket ? [...state.bracket.matches] : [];
+      if (state.preliminary?.rounds) {
+        state.preliminary.rounds.forEach((round) => round.forEach((m) => list.push(m)));
+      }
+      if (state.preliminary?.loserRounds) {
+        state.preliminary.loserRounds.forEach((round) => round.forEach((m) => list.push(m)));
+      }
+      return list;
+    }
+
+    function getMatchById(id) {
+      return getAllMatchesList().find((m) => m.id === id) || null;
+    }
+
+    function resolveFeed(feed) {
+      if (!feed) return null;
+      const src = getMatchById(feed.matchId);
+      if (!src) return null;
+      if (!src.confirmed) return null;
+      return feed.slot === "winner" ? src.winner : src.loser;
+    }
+
+    function isPreliminaryComplete() {
+      if (!state.preliminary?.rounds?.length) return true;
+      return state.preliminary.rounds.every((round) => round.every((m) => m.confirmed));
+    }
+
+    function buildPrelimRound(teamIds, roundIndex) {
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `pre-${roundIndex}-${seq++}`;
+      const pool = shuffle([...teamIds]);
+      for (let i = 0; i < pool.length; i += 2) {
+        const m = makeMatch(mkId, "preliminary", roundIndex, i / 2);
+        m.teamA = pool[i];
+        m.teamB = pool[i + 1];
+        m.bestOf = 5;
+        matches.push(m);
+      }
+      return matches;
+    }
+
+    function buildPrelimLoserRoundFromSources(sourceMatches, roundIndex) {
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `prelb-${roundIndex}-${seq++}`;
+      for (let i = 0; i < sourceMatches.length; i += 2) {
+        const m = makeMatch(mkId, "preliminary-lb", roundIndex, i / 2);
+        m.feedA = feed(sourceMatches[i], "loser");
+        if (sourceMatches[i + 1]) m.feedB = feed(sourceMatches[i + 1], "loser");
+        m.bestOf = 5;
+        matches.push(m);
+      }
+      return matches;
+    }
+
+    function buildPrelimLbAdvanceRound(prevRound, roundIndex) {
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `prelb-${roundIndex}-${seq++}`;
+      for (let i = 0; i < prevRound.length; i += 2) {
+        const m = makeMatch(mkId, "preliminary-lb", roundIndex, i / 2);
+        m.feedA = feed(prevRound[i], "winner");
+        if (prevRound[i + 1]) m.feedB = feed(prevRound[i + 1], "winner");
+        m.bestOf = 5;
+        matches.push(m);
+      }
+      return matches;
+    }
+
+    function wireSinglePrelimLoser(bracket, prelimMatch) {
+      if (!bracket.lb?.length) bracket.lb = [[]];
+      if (!bracket.lb[0]) bracket.lb[0] = [];
+      let seq = bracket.matches.length;
+      const mkId = () => `lb-pre-entry-${seq++}`;
+      const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
+      entry.feedA = feed(prelimMatch, "loser");
+      bracket.lb[0].push(entry);
+      bracket.matches.push(entry);
+    }
+
+    function wirePrelimLbChampionToBracket(bracket, finalPrelimLbMatch) {
+      if (!bracket.lb?.length) bracket.lb = [[]];
+      if (!bracket.lb[0]) bracket.lb[0] = [];
+      let seq = bracket.matches.length;
+      const mkId = () => `lb-pre-entry-${seq++}`;
+      const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
+      entry.feedA = feed(finalPrelimLbMatch, "winner");
+      bracket.lb[0].push(entry);
+      bracket.matches.push(entry);
+    }
+
+    /** Plazas en cuadro principal: equipo directo o ganador de preliminar */
+    function buildMainBracketFromSlots(slots, targetSize) {
+      const placeholders = Array.from({ length: targetSize }, (_, i) => "ph-" + i);
+      const result = buildBracketSimple(placeholders);
+      for (let m = 0; m < result.wb[0].length; m++) {
+        const match = result.wb[0][m];
+        const slotA = slots[m * 2];
+        const slotB = slots[m * 2 + 1];
+        if (slotA.type === "team") {
+          match.teamA = slotA.id;
+          match.feedA = null;
+        } else {
+          match.teamA = null;
+          match.feedA = feed(slotA.match, "winner");
+        }
+        if (slotB.type === "team") {
+          match.teamB = slotB.id;
+          match.feedB = null;
+        } else {
+          match.teamB = null;
+          match.feedB = feed(slotB.match, "winner");
+        }
+      }
+      assignMatchFormats(result);
+      return result;
+    }
+
+    function buildSlotsForMain(directIds, prelimMatches) {
+      const slots = [];
+      directIds.forEach((id) => slots.push({ type: "team", id }));
+      prelimMatches.forEach((m) => slots.push({ type: "prelim", match: m }));
+      return shuffle(slots);
+    }
+
+    function buildTournamentDraw(teamIds) {
+      const n = teamIds.length;
+      const order = shuffle([...teamIds]);
+      const drawInfo = {
+        drawnAt: new Date().toISOString(),
+        teamOrder: order,
+        teamCount: n,
+      };
+
+      if (BRACKET_SIZES.includes(n)) {
+        drawInfo.mode = "direct";
+        drawInfo.targetSize = n;
+        return {
+          preliminary: null,
+          bracket: buildBracketSimple(order),
+          drawInfo,
+        };
+      }
+
+      const target = getTargetSize(n);
+      if (!target) {
+        return { error: "Hay " + n + " equipos. Máximo 64." };
+      }
+
+      const excess = n - target;
+      const directCount = target - excess;
+      const directIds = order.slice(0, directCount);
+      const prelimPool = order.slice(directCount);
+      const winnerRound = buildPrelimRound(prelimPool, 0);
+      const loserRounds = [];
+
+      if (winnerRound.length > 1) {
+        loserRounds.push(buildPrelimLoserRoundFromSources(winnerRound, 0));
+        let r = loserRounds[loserRounds.length - 1];
+        let ri = 1;
+        while (r.length > 1) {
+          r = buildPrelimLbAdvanceRound(r, ri++);
+          loserRounds.push(r);
+        }
+      }
+
+      const slots = buildSlotsForMain(directIds, winnerRound);
+      const bracket = buildMainBracketFromSlots(slots, target);
+
+      if (winnerRound.length === 1) {
+        wireSinglePrelimLoser(bracket, winnerRound[0]);
+      } else if (loserRounds.length) {
+        const last = loserRounds[loserRounds.length - 1];
+        if (last[0]) wirePrelimLbChampionToBracket(bracket, last[0]);
+      }
+
+      drawInfo.mode = "preliminary";
+      drawInfo.targetSize = target;
+      drawInfo.directToMain = directIds;
+      drawInfo.preliminaryPairs = winnerRound.map((m) => ({ id: m.id, a: m.teamA, b: m.teamB }));
+
+      return {
+        preliminary: { rounds: [winnerRound], loserRounds, directIds },
+        bracket,
+        drawInfo,
+      };
+    }
+
+    function afterMatchConfirmed(match) {
+      if (match.bracket !== "preliminary" || !state.preliminary) return;
+      if (!isPreliminaryComplete()) return;
+      autoByeAdvance();
+    }
+
+    function resolveMatchTeams(match) {
+      let a = match.teamA;
+      let b = match.teamB;
+      if (match.feedA) a = resolveFeed(match.feedA) ?? a;
+      if (match.feedB) b = resolveFeed(match.feedB) ?? b;
+      return { a, b };
+    }
+
+    function autoByeAdvance() {
+      if (!state.bracket && !state.preliminary) return;
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const match of getAllMatchesList()) {
+          if (match.confirmed) continue;
+          const { a, b } = resolveMatchTeams(match);
+          const aBye = a && teamById(a)?.isBye;
+          const bBye = b && teamById(b)?.isBye;
+          if (a && !b && aBye) continue;
+          if (!a && b && bBye) continue;
+          if (aBye && b && !bBye) {
+            const need = winsNeeded(match);
+            match.winner = b;
+            match.loser = a;
+            match.scoreA = isGrandWithAdvantage(match) ? 1 : 0;
+            match.scoreB = need;
+            match.playedAt = new Date().toISOString();
+            match.confirmed = true;
+            changed = true;
+          } else if (bBye && a && !aBye) {
+            const need = winsNeeded(match);
+            match.winner = a;
+            match.loser = b;
+            match.scoreA = need;
+            match.scoreB = 0;
+            match.playedAt = new Date().toISOString();
+            match.confirmed = true;
+            changed = true;
+          } else if (aBye && bBye && a && b) {
+            const need = winsNeeded(match);
+            match.winner = a;
+            match.loser = b;
+            match.scoreA = need;
+            match.scoreB = 0;
+            match.playedAt = new Date().toISOString();
+            match.confirmed = true;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    function validateScore(match, scoreA, scoreB, teamA, teamB) {
+      const need = winsNeeded(match);
+      const max = match.bestOf;
+      if (!teamA || !teamB) return "Faltan equipos en el cruce";
+      if (teamById(teamA)?.isBye || teamById(teamB)?.isBye) return "BYE no requiere resultado";
+
+      const wbId = grandWbTeamId(match);
+      const aIsWb = wbId && teamA === wbId;
+
+      if (isGrandWithAdvantage(match)) {
+        if (!aIsWb) return "El campeón Winners debe estar en el lado A";
+        if (scoreA < 1) return "El campeón Winners parte con 1 mapa";
+        if (scoreB < 0) return "Marcador inválido";
+        if (scoreA > need || scoreB > need) return `Máximo ${need} mapas (BO${max})`;
+        if (scoreA === need && scoreB < need) return null;
+        if (scoreB === need && scoreA < need) return null;
+        const mapsPlayed = scoreA - 1 + scoreB;
+        if (mapsPlayed > max) return `Demasiados mapas jugados (máx. ${max})`;
+        return `Serie BO${max}: Winners a ${need} o Repechaje a ${need} (empieza 1–0)`;
+      }
+
+      if (scoreA < 0 || scoreB < 0) return "Marcador inválido";
+      if (scoreA > need || scoreB > need) return `Máximo ${need} mapas ganados (BO${max})`;
+      if (scoreA === need && scoreB === need) return "Solo un equipo puede llegar a " + need;
+      if (scoreA === need && scoreB < need) return null;
+      if (scoreB === need && scoreA < need) return null;
+      if (scoreA + scoreB > max) return "Demasiados mapas jugados";
+      return `Un equipo debe tener ${need} victorias (ej. ${need}-${need - 1})`;
+    }
+
+    function confirmMatch(matchId, scoreA, scoreB, playedAtLocal) {
+      const match = getMatchById(matchId);
+      if (!match || match.confirmed) return;
+      const { a, b } = resolveMatchTeams(match);
+      const err = validateScore(match, scoreA, scoreB, a, b);
+      if (err) return err;
+
+      const playedAt = dateTimeLocalToIso(playedAtLocal);
+      if (!playedAt) return "Indica fecha y hora del encuentro";
+
+      const need = winsNeeded(match);
+      match.scoreA = scoreA;
+      match.scoreB = scoreB;
+      match.playedAt = playedAt;
+      match.winner = scoreA === need ? a : b;
+      match.loser = scoreA === need ? b : a;
+      match.confirmed = true;
+      autoByeAdvance();
+      afterMatchConfirmed(match);
+      save();
+      renderBracket();
+      checkChampion();
+      return null;
+    }
+
+    function checkChampion() {
+      const g = state.bracket?.grand;
+      const banner = document.getElementById("championBanner");
+      const nameEl = document.getElementById("championName");
+      if (g?.confirmed && g.winner) {
+        banner.classList.add("visible");
+        nameEl.textContent = teamDisplayName(g.winner);
+      } else {
+        banner.classList.remove("visible");
+      }
+    }
+
+    function drawBracket() {
+      syncTeamsFromDOM();
+      const valid = state.teams.filter((t) => t.name.trim());
+      if (valid.length < 2) {
+        alert("Necesitas al menos 2 equipos con nombre.");
+        return;
+      }
+
+      const built = buildTournamentDraw(valid.map((t) => t.id));
+      if (built.error) {
+        alert(built.error);
+        return;
+      }
+
+      state.preliminary = built.preliminary;
+      state.bracket = built.bracket;
+      state.drawInfo = built.drawInfo;
+      state.drawn = true;
+      assignPrelimFormats();
+      autoByeAdvance();
+      persistLocal(getPayload());
+      save(false);
+      renderBracket();
+      showToast("Sorteo guardado · cruces listos");
+    }
+
+    function syncTeamsFromDOM() {
+      document.querySelectorAll(".team-card").forEach((card) => {
+        const id = card.dataset.id;
+        const team = state.teams.find((t) => t.id === id);
+        if (!team) return;
+        team.name = card.querySelector(".team-name").value.trim();
+        team.players = [...card.querySelectorAll(".player-name")].map((i) => i.value.trim());
+      });
+    }
+
+    function renderTeams() {
+      const grid = document.getElementById("teamsGrid");
+      grid.innerHTML = "";
+      state.teams.forEach((team) => {
+        const card = document.createElement("article");
+        card.className = "team-card";
+        card.dataset.id = team.id;
+
+        const hdr = document.createElement("header");
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.className = "team-name";
+        nameInput.placeholder = "Nombre del equipo";
+        nameInput.value = team.name;
+        nameInput.addEventListener("input", () => { team.name = nameInput.value; save(true); });
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-danger";
+        delBtn.textContent = "×";
+        delBtn.title = "Eliminar equipo";
+        delBtn.addEventListener("click", () => {
+          if (state.drawn) {
+            if (!confirm("Ya hay cuadro sorteado. ¿Eliminar equipo y reiniciar bracket?")) return;
+            clearBracketState();
+          }
+          state.teams = state.teams.filter((t) => t.id !== team.id);
+          save();
+          renderTeams();
+          renderBracket();
+        });
+
+        hdr.append(nameInput, delBtn);
+        card.appendChild(hdr);
+
+        const list = document.createElement("div");
+        list.className = "players-list";
+
+        function renderPlayers() {
+          list.innerHTML = "";
+          team.players.forEach((p, idx) => {
+            const row = document.createElement("div");
+            row.className = "player-row";
+            const label = document.createElement("span");
+            label.textContent = idx + 1 + ".";
+            const inp = document.createElement("input");
+            inp.type = "text";
+            inp.className = "player-name";
+            inp.placeholder = "Jugador";
+            inp.value = p;
+            inp.addEventListener("input", () => {
+              team.players[idx] = inp.value;
+              save(true);
+            });
+            const rm = document.createElement("button");
+            rm.type = "button";
+            rm.className = "btn-danger";
+            rm.textContent = "×";
+            rm.addEventListener("click", () => {
+              if (team.players.length <= 1) return;
+              team.players.splice(idx, 1);
+              save();
+              renderPlayers();
+            });
+            row.append(label, inp, rm);
+            list.appendChild(row);
+          });
+        }
+
+        renderPlayers();
+        card.appendChild(list);
+
+        const addP = document.createElement("button");
+        addP.type = "button";
+        addP.className = "add-player";
+        addP.textContent = "+ Jugador (máx. 5)";
+        addP.addEventListener("click", () => {
+          if (team.players.length >= 5) return;
+          team.players.push("");
+          save();
+          renderPlayers();
+        });
+        if (team.players.length >= 5) addP.disabled = true;
+
+        card.appendChild(addP);
+        grid.appendChild(card);
+      });
+    }
+
+    function findDestinations(match) {
+      const out = [];
+      for (const m of getAllMatchesList()) {
+        if (m.feedA?.matchId === match.id) {
+          out.push({ dest: m, path: m.feedA.slot });
+        }
+        if (m.feedB?.matchId === match.id) {
+          out.push({ dest: m, path: m.feedB.slot });
+        }
+      }
+      return out;
+    }
+
+    function findNextMatchesFromWinner(match) {
+      if (!match.confirmed || !match.winner) return [];
+      return findDestinations(match).filter((d) => d.path === "winner").map((d) => d.dest);
+    }
+
+    function matchShortLabel(m) {
+      const cruce = m.index + 1;
+      if (m.bracket === "preliminary") return "Prelim. ganadores · Cruce " + cruce;
+      if (m.bracket === "preliminary-lb") return "Prelim. repechaje · Cruce " + cruce;
+      if (m.bracket === "grand") return "Gran final";
+      if (m.bracket === "winners" && state.bracket?.wb) {
+        const wbRounds = state.bracket.wb.length;
+        const names =
+          wbRounds <= 1
+            ? ["Final"]
+            : wbRounds === 2
+              ? ["Semifinal", "Final"]
+              : wbRounds === 3
+                ? ["Cuartos", "Semifinal", "Final"]
+                : ["Octavos", "Cuartos", "Semifinal", "Final"];
+        return "WB " + (names[m.round] || "R" + (m.round + 1)) + " · Cruce " + cruce;
+      }
+      if (m.bracket === "losers") return "LB R" + (m.round + 1) + " · Cruce " + cruce;
+      return m.id;
+    }
+
+    function pathLabel(path) {
+      return path === "winner" ? "Ganador" : "Perdedor";
+    }
+
+    function appendMatchGuide(card, match) {
+      const dests = findDestinations(match);
+      if (!dests.length) return;
+      const guide = document.createElement("div");
+      guide.className = "match-guide";
+      const title = document.createElement("div");
+      title.className = "match-guide-title";
+      title.textContent = "Siguiente cruce";
+      guide.appendChild(title);
+      dests.forEach((d) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "guide-link guide-" + d.path;
+        btn.innerHTML =
+          '<span class="guide-arrow-icon" aria-hidden="true">→</span>' +
+          '<span class="guide-path">' +
+          pathLabel(d.path) +
+          "</span>" +
+          '<span class="guide-target">' +
+          matchShortLabel(d.dest) +
+          "</span>";
+        btn.addEventListener("click", () => highlightBracketMatch(d.dest.id));
+        guide.appendChild(btn);
+      });
+      card.appendChild(guide);
+    }
+
+    function finishMatchCard(card, match) {
+      appendMatchGuide(card, match);
+      return card;
+    }
+
+    function highlightBracketMatch(matchId) {
+      document.querySelectorAll(".match-slot.guide-highlight").forEach((el) => el.classList.remove("guide-highlight"));
+      const slot = document.querySelector('.match-slot[data-match-id="' + matchId + '"]');
+      if (!slot) return;
+      slot.classList.add("guide-highlight");
+      slot.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      setTimeout(() => slot.classList.remove("guide-highlight"), 2800);
+    }
+
+    function ensureBracketGuideSvg(flowEl, markerSuffix) {
+      let svg = flowEl.querySelector(":scope > svg.bracket-guide-lines");
+      if (!svg) {
+        svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "bracket-guide-lines");
+        svg.setAttribute("aria-hidden", "true");
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const suf = markerSuffix || "";
+        defs.innerHTML =
+          '<marker id="arrow-win' +
+          suf +
+          '" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#00d4ff"/></marker>' +
+          '<marker id="arrow-lose' +
+          suf +
+          '" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c98bc9"/></marker>';
+        svg.appendChild(defs);
+        flowEl.insertBefore(svg, flowEl.firstChild);
+      }
+      return { svg, markerSuffix: markerSuffix || "" };
+    }
+
+    let guideDrawTimer = null;
+
+    function computeBracketTreePositions(rounds, allowedBrackets) {
+      const allowed = new Set(allowedBrackets);
+      const pos = new Map();
+      if (!rounds?.length) return pos;
+
+      const lastRi = rounds.length - 1;
+      rounds[lastRi].forEach((m, i) => pos.set(m.id, i));
+
+      for (let ri = lastRi - 1; ri >= 0; ri--) {
+        const nextIds = new Set(rounds[ri + 1].map((m) => m.id));
+        rounds[ri].forEach((m, i) => {
+          const dests = findDestinations(m).filter(
+            (d) => allowed.has(d.dest.bracket) && nextIds.has(d.dest.id)
+          );
+          const primary = dests.filter((d) => d.path === "winner");
+          const use = primary.length ? primary : dests;
+          if (use.length === 1) {
+            const y = pos.get(use[0].dest.id);
+            pos.set(m.id, y !== undefined ? y : i);
+          } else if (use.length > 1) {
+            const ys = use.map((d) => pos.get(d.dest.id)).filter((y) => y !== undefined);
+            pos.set(m.id, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : i);
+          } else {
+            pos.set(m.id, i);
+          }
+        });
+      }
+      return pos;
+    }
+
+    function alignFlowBracketTree(flowEl, rounds, allowedBrackets) {
+      if (!flowEl || !rounds?.length) return;
+      const pos = computeBracketTreePositions(rounds, allowedBrackets);
+      const columns = flowEl.querySelectorAll(".round-column");
+      if (!columns.length) return;
+
+      flowEl.querySelectorAll(".match-slot[data-match-id]").forEach((slot) => {
+        slot.style.marginTop = "";
+      });
+      columns.forEach((col) => {
+        col.style.minHeight = "";
+      });
+
+      let unit = 0;
+      flowEl.querySelectorAll(".match-slot").forEach((slot) => {
+        unit = Math.max(unit, slot.offsetHeight);
+      });
+      if (!unit) return;
+
+      const colStyle = getComputedStyle(columns[0]);
+      const gapPx = parseFloat(colStyle.gap) || 10;
+      const step = unit + gapPx;
+
+      let maxIndex = 0;
+      pos.forEach((v) => {
+        if (v > maxIndex) maxIndex = v;
+      });
+      const colMinH = maxIndex * step + unit;
+      columns.forEach((col) => {
+        col.style.minHeight = colMinH + "px";
+      });
+
+      columns.forEach((col) => {
+        const slots = col.querySelectorAll(".match-slot[data-match-id]");
+        slots.forEach((slot, i) => {
+          const target = pos.get(slot.dataset.matchId);
+          const index = target !== undefined ? target : i;
+          const offset = (index - i) * step;
+          if (offset > 0) slot.style.marginTop = offset + "px";
+        });
+      });
+    }
+
+    function appendBracketGuidePath(svg, d, pathKind, markerSuffix) {
+      const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      pathEl.setAttribute("d", d);
+      pathEl.setAttribute("stroke", pathKind === "winner" ? "#4de8ff" : "#e09ce0");
+      pathEl.setAttribute("stroke-width", "2");
+      pathEl.setAttribute("fill", "none");
+      pathEl.setAttribute("stroke-linecap", "round");
+      pathEl.setAttribute("stroke-linejoin", "round");
+      pathEl.setAttribute(
+        "marker-end",
+        pathKind === "winner" ? "url(#arrow-win" + markerSuffix + ")" : "url(#arrow-lose" + markerSuffix + ")"
+      );
+      pathEl.setAttribute("opacity", "0.88");
+      svg.appendChild(pathEl);
+    }
+
+    function drawBracketGuidesForFlow(flowEl, allowedBrackets, markerSuffix) {
+      if (!flowEl) return;
+      const { svg, markerSuffix: suf } = ensureBracketGuideSvg(flowEl, markerSuffix);
+      while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+      const flowRect = flowEl.getBoundingClientRect();
+      svg.setAttribute("width", String(Math.max(flowEl.offsetWidth, 1)));
+      svg.setAttribute("height", String(Math.max(flowEl.offsetHeight, 1)));
+
+      const allowed = new Set(allowedBrackets);
+      const slotById = new Map();
+      flowEl.querySelectorAll(".match-slot[data-match-id]").forEach((s) => {
+        slotById.set(s.dataset.matchId, s);
+      });
+
+      const drawn = new Set();
+      for (const match of getAllMatchesList()) {
+        if (!allowed.has(match.bracket)) continue;
+        const from = slotById.get(match.id);
+        if (!from) continue;
+        findDestinations(match).forEach((d) => {
+          if (!allowed.has(d.dest.bracket)) return;
+          const to = slotById.get(d.dest.id);
+          if (!to) return;
+          const key = match.id + "->" + d.dest.id + "|" + d.path;
+          if (drawn.has(key)) return;
+          drawn.add(key);
+
+          const fr = from.getBoundingClientRect();
+          const tr = to.getBoundingClientRect();
+          const x1 = fr.right - flowRect.left;
+          const y1 = fr.top + fr.height / 2 - flowRect.top;
+          const x2 = tr.left - flowRect.left;
+          const y2 = tr.top + tr.height / 2 - flowRect.top;
+          const gap = Math.max(16, (x2 - x1) * 0.38);
+          const midX = x1 + gap;
+
+          let pathD;
+          if (Math.abs(y1 - y2) < 4) {
+            pathD = "M " + x1 + " " + y1 + " H " + (x2 - 2);
+          } else {
+            pathD = "M " + x1 + " " + y1 + " H " + midX + " V " + y2 + " H " + (x2 - 2);
+          }
+          appendBracketGuidePath(svg, pathD, d.path, suf);
+        });
+      }
+    }
+
+    function drawAllBracketGuides() {
+      const section = document.getElementById("bracketSection");
+      if (!section || section.hidden) return;
+      section.querySelectorAll("svg.bracket-guide-lines").forEach((s) => {
+        if (s.parentElement?.id !== "bracketSection") s.remove();
+      });
+      drawBracketGuidesForFlow(document.getElementById("winnersFlow"), ["preliminary", "winners"], "-w");
+      drawBracketGuidesForFlow(document.getElementById("losersFlow"), ["preliminary-lb", "losers"], "-l");
+    }
+
+    function scheduleBracketGuides() {
+      clearTimeout(guideDrawTimer);
+      guideDrawTimer = setTimeout(drawAllBracketGuides, 60);
+    }
+
+    function buildWinnersRounds() {
+      const rounds = [];
+      if (state.preliminary?.rounds) rounds.push(...state.preliminary.rounds);
+      if (state.bracket?.wb) rounds.push(...state.bracket.wb);
+      return rounds;
+    }
+
+    function buildLosersRounds() {
+      const rounds = [];
+      if (state.preliminary?.loserRounds) rounds.push(...state.preliminary.loserRounds);
+      if (state.bracket?.lb) rounds.push(...state.bracket.lb);
+      return rounds;
+    }
+
+    function winnersRoundLabel(ri) {
+      const prelimLen = state.preliminary?.rounds?.length || 0;
+      if (ri < prelimLen) {
+        return state.preliminary.rounds.length > 1 ? "Preliminar " + (ri + 1) : "Preliminar";
+      }
+      const wbRi = ri - prelimLen;
+      const round = state.bracket.wb[wbRi];
+      return wbRoundLabel(wbRi, state.bracket.wb.length, round?.length || 1);
+    }
+
+    function losersRoundLabel(ri) {
+      const prelimLen = state.preliminary?.loserRounds?.length || 0;
+      if (ri < prelimLen) return "Prelim. repechaje " + (ri + 1);
+      const lbRi = ri - prelimLen;
+      const round = state.bracket.lb[lbRi];
+      return round?.length === 1 && lbRi === state.bracket.lb.length - 1
+        ? "Final repechaje"
+        : "LB R" + (lbRi + 1);
+    }
+
+    function nextMatchLabel(nextMatch) {
+      return matchShortLabel(nextMatch);
+    }
+
+    function ensureGrandStartScore(match, teamA, teamB) {
+      if (!isGrandWithAdvantage(match) || match.confirmed || !teamA || !teamB) return;
+      if (match.scoreA === null && match.scoreB === null) {
+        match.scoreA = 1;
+        match.scoreB = 0;
+      }
+    }
+
+    function renderMatchCard(match) {
+      const { a, b } = resolveMatchTeams(match);
+      ensureGrandStartScore(match, a, b);
+      const need = winsNeeded(match);
+      const bo = match.bestOf;
+      const pending = (match.feedA && !resolveFeed(match.feedA)) || (match.feedB && !resolveFeed(match.feedB));
+      const aBye = a && teamById(a)?.isBye;
+      const bBye = b && teamById(b)?.isBye;
+      const isByeMatch = aBye || bBye;
+
+      const card = document.createElement("article");
+      card.className = "match-card" + (match.confirmed ? " confirmed" : pending ? " pending-feed" : "") + (isByeMatch ? " bye" : "");
+
+      const idLabel = document.createElement("div");
+      idLabel.className = "match-id";
+      const bracketLabel =
+        match.bracket === "preliminary"
+          ? "PRELIM"
+          : match.bracket === "preliminary-lb"
+            ? "PRELIM-LB"
+            : match.bracket === "winners"
+              ? "WB"
+              : match.bracket === "losers"
+                ? "LB"
+                : "GF";
+      const phase =
+        match.bracket === "preliminary"
+          ? "Preliminar ganadores"
+          : match.bracket === "preliminary-lb"
+            ? "Preliminar repechaje"
+            : match.bracket === "grand"
+            ? "Gran final"
+            : bo === 7
+              ? "Semifinal"
+              : "Ronda inicial";
+      idLabel.textContent = `${bracketLabel} · ${phase} · BO${bo}`;
+      card.appendChild(idLabel);
+
+      const teamsEl = document.createElement("div");
+      teamsEl.className = "match-teams";
+
+      function teamRow(id, side) {
+        const row = document.createElement("div");
+        row.className = "match-team";
+        if (!id) {
+          row.classList.add("tbd");
+          row.textContent = "Por definir";
+        } else if (teamById(id)?.isBye) {
+          row.classList.add("bye-team");
+          row.textContent = "BYE";
+        } else {
+          row.textContent = teamDisplayName(id);
+        }
+        if (match.confirmed && id === match.winner) row.classList.add("winner");
+        if (match.confirmed && id === match.loser) row.classList.add("loser");
+        return row;
+      }
+
+      teamsEl.append(teamRow(a, "A"), teamRow(b, "B"));
+      card.appendChild(teamsEl);
+
+      if (isGrandWithAdvantage(match) && a && b && !match.confirmed) {
+        const tag = document.createElement("span");
+        tag.className = "advantage-tag";
+        tag.textContent = `${teamDisplayName(grandWbTeamId(match))} (Winners) empieza 1–0`;
+        card.appendChild(tag);
+      }
+
+      if (match.confirmed) {
+        const res = document.createElement("div");
+        res.className = "result-block";
+        res.innerHTML =
+          "<h4>Resultado confirmado</h4>" +
+          '<div class="score-row"><strong>' +
+          match.scoreA +
+          '</strong> <span class="vs">-</span> <strong>' +
+          match.scoreB +
+          "</strong></div>";
+        const dtLine = document.createElement("p");
+        dtLine.className = "match-datetime";
+        dtLine.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
+        res.appendChild(dtLine);
+        const nextList = findNextMatchesFromWinner(match);
+        if (nextList.length) {
+          const adv = document.createElement("p");
+          adv.className = "advance-arrow";
+          adv.textContent =
+            "→ " +
+            teamDisplayName(match.winner) +
+            " avanza a " +
+            nextList.map(nextMatchLabel).join(", ");
+          res.appendChild(adv);
+        }
+        card.appendChild(res);
+        return finishMatchCard(card, match);
+      }
+
+      if (!a || !b || pending) {
+        const wait = document.createElement("p");
+        wait.style.color = "var(--muted)";
+        wait.style.fontSize = "0.85rem";
+        wait.textContent = pending ? "Esperando cruces anteriores…" : "Esperando equipos…";
+        card.appendChild(wait);
+        return finishMatchCard(card, match);
+      }
+
+      if (isByeMatch) {
+        const byeNote = document.createElement("p");
+        byeNote.style.color = "var(--muted)";
+        byeNote.style.fontSize = "0.85rem";
+        byeNote.textContent = "Avance automático (BYE)";
+        card.appendChild(byeNote);
+        return finishMatchCard(card, match);
+      }
+
+      const block = document.createElement("div");
+      block.className = "result-block";
+      block.innerHTML = "<h4>Registrar resultado</h4>";
+      const hint = document.createElement("p");
+      hint.className = "score-hint";
+      hint.textContent = isGrandWithAdvantage(match)
+        ? `BO${bo}: Winners ya tiene 1 mapa · primero a ${need} · máx. ${bo} mapas`
+        : `Primero en ${need} mapas · máx. ${bo} mapas`;
+      block.appendChild(hint);
+
+      const dtLabel = document.createElement("label");
+      dtLabel.className = "datetime-label";
+      dtLabel.textContent = "Fecha y hora del encuentro";
+      const inpDt = document.createElement("input");
+      inpDt.type = "datetime-local";
+      inpDt.value = isoToDateTimeLocal(match.playedAt);
+      block.appendChild(dtLabel);
+      block.appendChild(inpDt);
+
+      const row = document.createElement("div");
+      row.className = "score-row";
+      const inpA = document.createElement("input");
+      inpA.type = "number";
+      inpA.min = isGrandWithAdvantage(match) ? 1 : 0;
+      inpA.max = need;
+      inpA.value = match.scoreA ?? (isGrandWithAdvantage(match) ? 1 : "");
+      const vs = document.createElement("span");
+      vs.className = "vs";
+      vs.textContent = "—";
+      const inpB = document.createElement("input");
+      inpB.type = "number";
+      inpB.min = 0;
+      inpB.max = need;
+      inpB.value = match.scoreB ?? "";
+
+      row.append(inpA, vs, inpB);
+      block.appendChild(row);
+
+      const errEl = document.createElement("div");
+      errEl.className = "result-error";
+      block.appendChild(errEl);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-confirm";
+      btn.textContent = "Confirmar resultado";
+      btn.addEventListener("click", () => {
+        const sa = parseInt(inpA.value, 10);
+        const sb = parseInt(inpB.value, 10);
+        if (Number.isNaN(sa) || Number.isNaN(sb)) {
+          errEl.textContent = "Introduce ambos marcadores";
+          return;
+        }
+        const err = confirmMatch(match.id, sa, sb, inpDt.value);
+        if (err) errEl.textContent = err;
+        else errEl.textContent = "";
+      });
+      block.appendChild(btn);
+      card.appendChild(block);
+
+      return finishMatchCard(card, match);
+    }
+
+    function wbRoundLabel(ri, totalRounds, matchCount) {
+      if (ri === totalRounds - 1 && matchCount === 1) return "Final";
+      if (ri === totalRounds - 2 && matchCount <= 2) return "Semifinal";
+      const namesBySize = {
+        1: ["Final"],
+        2: ["Semifinal", "Final"],
+        3: ["Cuartos", "Semifinal", "Final"],
+        4: ["Octavos", "Cuartos", "Semifinal", "Final"],
+        5: ["Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
+        6: ["R32", "Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
+      };
+      return (namesBySize[totalRounds] || [])[ri] || "Ronda " + (ri + 1);
+    }
+
+    function renderBracketColumn(container, rounds, options) {
+      container.innerHTML = "";
+      container.classList.add("knockout-view");
+      options = options || {};
+      if (!rounds || !rounds.length) {
+        container.innerHTML = '<p class="empty-bracket">—</p>';
+        return;
+      }
+      const lastRi = rounds.length - 1;
+      const totalRounds = rounds.length;
+      rounds.forEach((roundMatches, ri) => {
+        const col = document.createElement("div");
+        col.className = "round-column";
+        const label = document.createElement("div");
+        label.className = "round-label";
+        label.textContent = options.roundLabelFn
+          ? options.roundLabelFn(ri, totalRounds, roundMatches.length)
+          : wbRoundLabel(ri, totalRounds, roundMatches.length);
+        col.appendChild(label);
+        roundMatches.forEach((m) => {
+          const slot = document.createElement("div");
+          slot.className =
+            "match-slot bracket-node" + (ri < lastRi ? " has-connector" : "");
+          slot.dataset.matchId = m.id;
+          slot.appendChild(renderMatchCard(m));
+          col.appendChild(slot);
+        });
+        container.appendChild(col);
+      });
+    }
+
+    function renderDrawInfoBanner() {
+      const el = document.getElementById("drawInfoBanner");
+      if (!state.drawInfo) {
+        el.style.display = "none";
+        return;
+      }
+      el.style.display = "block";
+      const d = state.drawInfo;
+      let txt =
+        "Sorteo del " +
+        new Date(d.drawnAt).toLocaleString("es") +
+        " · " +
+        d.teamCount +
+        " equipos";
+      if (d.mode === "preliminary" || d.mode === "preliminary_to_16") {
+        txt +=
+          " · Preliminar → cuadro de " +
+          (d.targetSize || 16) +
+          " · perdedores a repechaje preliminar";
+      } else {
+        txt += " · Cuadro directo de " + (d.targetSize || d.teamCount) + " plazas.";
+      }
+      el.innerHTML = "<strong>Sorteo guardado:</strong> " + txt;
+    }
+
+    function renderBracket() {
+      const section = document.getElementById("bracketSection");
+      const empty = document.getElementById("emptyBracket");
+
+      if (!state.drawn || !state.bracket) {
+        section.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+
+      section.hidden = false;
+      empty.hidden = true;
+      renderDrawInfoBanner();
+
+      const winnersTitle = document.getElementById("winnersTitle");
+      if (winnersTitle && state.drawInfo?.targetSize) {
+        winnersTitle.textContent = "BRACKET WINNERS (" + state.drawInfo.targetSize + ")";
+      }
+
+      autoByeAdvance();
+
+      renderBracketColumn(document.getElementById("winnersBracket"), buildWinnersRounds(), {
+        roundLabelFn: (ri) => winnersRoundLabel(ri),
+      });
+      renderBracketColumn(document.getElementById("losersBracket"), buildLosersRounds(), {
+        roundLabelFn: (ri) => losersRoundLabel(ri),
+      });
+
+      alignFlowBracketTree(
+        document.getElementById("winnersFlow"),
+        buildWinnersRounds(),
+        ["preliminary", "winners"]
+      );
+      alignFlowBracketTree(
+        document.getElementById("losersFlow"),
+        buildLosersRounds(),
+        ["preliminary-lb", "losers"]
+      );
+
+      const grandEl = document.getElementById("grandBracket");
+      grandEl.innerHTML = "";
+      const col = document.createElement("div");
+      col.className = "round-column";
+      const grandSlot = document.createElement("div");
+      grandSlot.className = "match-slot";
+      grandSlot.dataset.matchId = state.bracket.grand.id;
+      grandSlot.appendChild(renderMatchCard(state.bracket.grand));
+      col.appendChild(grandSlot);
+      grandEl.appendChild(col);
+
+      checkChampion();
+      scheduleBracketGuides();
+    }
+
+    document.getElementById("btnAddTeam").addEventListener("click", () => {
+      if (state.drawn && !confirm("Hay un cuadro activo. ¿Añadir equipo reiniciará el bracket?")) return;
+      if (state.drawn) clearBracketState();
+      state.teams.push(createTeam());
+      save();
+      renderTeams();
+      renderBracket();
+    });
+
+    document.getElementById("btnDraw").addEventListener("click", () => {
+      if (state.drawn && !confirm("¿Volver a sortear? Se perderán los resultados del cuadro.")) return;
+      drawBracket();
+    });
+
+    document.getElementById("btnSave").addEventListener("click", () => {
+      syncTeamsFromDOM();
+      save();
+    });
+
+    document.getElementById("btnExport").addEventListener("click", exportBackup);
+
+    document.getElementById("btnImport").addEventListener("click", () => {
+      document.getElementById("importFile").click();
+    });
+
+    document.getElementById("importFile").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) importBackup(file);
+      e.target.value = "";
+    });
+
+    document.getElementById("btnReset").addEventListener("click", async () => {
+      if (!confirm("¿Borrar todo el torneo (equipos y cuadro)?")) return;
+      localStorage.removeItem(STORAGE_KEY);
+      await clearDatabase();
+      state.teams = [createTeam(), createTeam()];
+      clearBracketState();
+      teamIdCounter = 3;
+      save(true);
+      renderTeams();
+      renderBracket();
+      showToast("Torneo reiniciado");
+    });
+
+    async function testFirestoreConnection() {
+      if (!firebaseReady) return false;
+      try {
+        const cfg = window.FIREBASE_SC2_CONFIG;
+        const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+        await withTimeout(ref.get(), 6000, "Firestore no respondió");
+        return true;
+      } catch (e) {
+        firebaseInitError = e.code === "permission-denied"
+          ? "Firestore: permiso denegado. Publica reglas en la consola."
+          : (e.message || String(e));
+        console.warn("Firestore test:", e);
+        return false;
+      }
+    }
+
+    function ensureDefaultTeams() {
+      if (!Array.isArray(state.teams) || state.teams.length === 0) {
+        state.teams = [createTeam(), createTeam(), createTeam(), createTeam()];
+      }
+    }
+
+    function renderAll() {
+      renderTeams();
+      renderBracket();
+      updateStorageBadge();
+    }
+
+    async function fetchCloudPayload() {
+      if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
+        try {
+          const cfg = window.FIREBASE_SC2_CONFIG;
+          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+          const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió");
+          if (snap.exists) {
+            const d = snap.data();
+            return d.payload != null ? d.payload : d.data;
+          }
+        } catch (e) {
+          console.warn("Firestore lectura:", e);
+        }
+      }
+      if (!isFileMode) {
+        try {
+          const res = await fetch(API);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.data) return json.data;
+          }
+        } catch (e) {
+          /* sin servidor */
+        }
+      }
+      return null;
+    }
+
+    async function syncFromCloud() {
+      initFirebaseFromConfig();
+      await pingSqliteBackend();
+
+      if (isFileMode && window.FIREBASE_SC2_CONFIG?.enabled === true && !firebaseReady) {
+        firebaseInitError =
+          firebaseInitError ||
+          "Desde archivo local Firestore suele fallar. Usa Exportar JSON o publica en Firebase Hosting.";
+      }
+
+      if (window.FIREBASE_SC2_CONFIG?.enabled === true && firebaseReady) {
+        const ok = await testFirestoreConnection();
+        if (!ok) firebaseReady = false;
+      }
+
+      let local = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("sc2-tournament-v1");
+        if (raw) local = JSON.parse(raw);
+      } catch (e) {
+        /* ignore */
+      }
+
+      const cloud = await fetchCloudPayload();
+      const merged = choosePayload(local, cloud);
+      if (merged) {
+        applyPayload(merged);
+        persistLocal(merged);
+        renderAll();
+        if (firebaseReady && cloud) showToast("Sincronizado con Firestore");
+      }
+
+      updateStorageBadge();
+
+      if (firebaseReady && window.FIREBASE_SC2_CONFIG?.enabled === true && !merged) {
+        showToast("Conectado a Firebase Firestore");
+      }
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("No se pudo cargar: " + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function loadFirebaseSdk() {
+      if (typeof firebase !== "undefined") return true;
+      try {
+        await loadScript("https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js");
+        await loadScript("https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js");
+        await loadScript("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js");
+        return typeof firebase !== "undefined";
+      } catch (e) {
+        console.warn("SDK Firebase:", e);
+        firebaseInitError = "No se pudo cargar Firebase (revisa internet o bloqueadores)";
+        return false;
+      }
+    }
+
+    function initAdminApp() {
+      if (adminAppStarted) return;
+      adminAppStarted = true;
+      window.addEventListener("resize", scheduleBracketGuides);
+      try {
+        loadFromLocalStorage();
+        ensureDefaultTeams();
+        renderAll();
+        loadFirebaseSdk()
+          .then(() => syncFromCloud())
+          .catch((e) => console.warn("Sync nube:", e));
+      } catch (e) {
+        console.error("Error al iniciar:", e);
+        ensureDefaultTeams();
+        renderAll();
+        showToast("Error al cargar; usando datos locales");
+      }
+    }
+
+    function setupAuth() {
+      document.getElementById("btnLogin").addEventListener("click", async () => {
+        const errEl = document.getElementById("loginError");
+        errEl.textContent = "";
+        try {
+          await loadFirebaseSdk();
+          initFirebaseFromConfig();
+          if (!firebaseAuth) throw new Error("Firebase Auth no disponible");
+          await firebaseAuth.signInWithEmailAndPassword(
+            document.getElementById("adminEmail").value.trim(),
+            document.getElementById("adminPassword").value
+          );
+        } catch (e) {
+          errEl.textContent = e.message || "Error al iniciar sesión";
+        }
+      });
+
+      document.getElementById("btnLogout").addEventListener("click", () => {
+        if (firebaseAuth) firebaseAuth.signOut();
+      });
+
+      loadFirebaseSdk().then(() => {
+        initFirebaseFromConfig();
+        if (!firebaseAuth) return;
+        firebaseAuth.onAuthStateChanged((user) => {
+          const login = document.getElementById("loginScreen");
+          const app = document.getElementById("adminApp");
+          if (user) {
+            login.hidden = true;
+            app.hidden = false;
+            document.getElementById("adminUserLabel").textContent = "Admin: " + user.email;
+            initAdminApp();
+          } else {
+            login.hidden = false;
+            app.hidden = true;
+            adminAppStarted = false;
+          }
+        });
+      });
+    }
+
+    setupAuth();
+  </script>
+</body>
+</html>
