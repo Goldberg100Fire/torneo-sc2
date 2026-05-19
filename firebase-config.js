@@ -3,7 +3,7 @@
  * Las claves de cliente van en el navegador; la seguridad la dan las reglas de Firestore.
  * Para desarrollo local puedes sobreescribir en firebase-config.local.js (no se sube a Git).
  */
-window.FIREBASE_SC2_CONFIG = window.FIREBASE_SC2_CONFIG || {
+window.FIREBASE_SC2_CONFIG = {
   enabled: true,
 
   firestoreCollection: "torneos_sc2",

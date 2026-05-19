@@ -661,12 +661,9 @@
 
   <div class="toast" id="toast">Guardado en localStorage</div>
 
-  <!-- Config Firebase (antes del script principal) -->
-  <script>
-    window.FIREBASE_SC2_CONFIG = window.FIREBASE_SC2_CONFIG || { enabled: false, firebaseConfig: {} };
-  </script>
-  <script src="firebase-config.local.js"></script>
+  <!-- Config Firebase: producción primero; local.js opcional (solo en tu PC) -->
   <script src="firebase-config.js"></script>
+  <script src="firebase-config.local.js"></script>
 
   <script>
     const PUBLIC_VIEW = true;
@@ -2340,15 +2337,23 @@
           loadFromLocalStorage();
           renderAll();
           loadFirebaseSdk()
-            .then(() => {
+            .then(async () => {
               initFirebaseFromConfig();
-              subscribePublicFirestore();
+              if (firebaseReady) {
+                const ok = await loadFromFirestore();
+                if (ok) renderAll();
+                subscribePublicFirestore();
+              }
               if (!firebaseReady) {
-                document.getElementById("dbStatus").textContent = "Solo datos locales";
+                const el = document.getElementById("dbStatus");
+                el.textContent = firebaseInitError ? "Firebase: error" : "Solo datos locales";
+                if (firebaseInitError) el.title = firebaseInitError;
               }
             })
-            .catch(() => {
-              document.getElementById("dbStatus").textContent = "Solo datos locales";
+            .catch((e) => {
+              const el = document.getElementById("dbStatus");
+              el.textContent = "Sin conexión Firebase";
+              el.title = e?.message || String(e);
             });
           return;
         }
