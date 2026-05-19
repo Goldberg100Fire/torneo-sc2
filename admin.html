@@ -758,6 +758,7 @@
 
   <script>
     const STORAGE_KEY = "sc2-tournament-v2";
+    const MAX_PLAYERS_PER_TEAM = 6;
     const API = "/api/tournament";
     /** true = abriste index.html con doble clic (sin servidor Node) */
     const isFileMode = location.protocol === "file:";
@@ -817,7 +818,7 @@
     }
 
     function createTeam(name = "", players = [""]) {
-      return { id: uid(), name, players: players.slice(0, 5) };
+      return { id: uid(), name, players: players.slice(0, MAX_PLAYERS_PER_TEAM) };
     }
 
     function getPayload() {
@@ -1856,14 +1857,14 @@
         const addP = document.createElement("button");
         addP.type = "button";
         addP.className = "add-player";
-        addP.textContent = "+ Jugador (máx. 5)";
+        addP.textContent = "+ Jugador (máx. " + MAX_PLAYERS_PER_TEAM + ")";
         addP.addEventListener("click", () => {
-          if (team.players.length >= 5) return;
+          if (team.players.length >= MAX_PLAYERS_PER_TEAM) return;
           team.players.push("");
           save();
           renderPlayers();
         });
-        if (team.players.length >= 5) addP.disabled = true;
+        if (team.players.length >= MAX_PLAYERS_PER_TEAM) addP.disabled = true;
 
         card.appendChild(addP);
         grid.appendChild(card);
