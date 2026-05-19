@@ -228,6 +228,10 @@
       border-bottom: 2px solid var(--panel-border);
     }
 
+    #bracketSection h2 {
+      text-align: center;
+    }
+
     section h2.winners { color: #5eb8e8; border-color: var(--winners); }
     section h2.losers { color: #c98bc9; border-color: var(--losers); }
     section h2.grand { color: var(--gold); border-color: var(--gold-dim); }
@@ -235,6 +239,9 @@
     .bracket-flow {
       position: relative;
       margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: center;
+      width: 100%;
     }
 
     .bracket-flow .bracket-guide-lines {
@@ -489,11 +496,12 @@
       gap: 0;
       overflow-x: auto;
       padding: 0.5rem 0 1rem;
-      align-items: flex-start;
+      align-items: stretch;
+      margin: 0 auto;
     }
 
     .knockout-view .round-column {
-      flex: 1;
+      flex: 0 0 auto;
       min-width: 260px;
       padding: 0 1.25rem 0 1rem;
       display: flex;
@@ -501,6 +509,15 @@
       gap: 0.5rem;
       justify-content: flex-start;
       align-items: stretch;
+      box-sizing: border-box;
+    }
+
+    .knockout-view .round-column.bracket-pyramid-anchor {
+      justify-content: flex-start;
+    }
+
+    .knockout-view .round-column.bracket-pyramid-narrow {
+      justify-content: center;
     }
 
     .knockout-view .round-column:not(:last-child) { border-right: 1px solid var(--panel-border); }
@@ -608,7 +625,6 @@
 <body>
   <nav class="top-nav">
     <span class="public-badge">Vista pública · solo lectura</span>
-    <a href="admin.html">Administración (login)</a>
   </nav>
   <header>
     <h1>TORNEO STARCRAFT</h1>
@@ -620,7 +636,6 @@
       <p class="format-info">
         <strong>Formatos:</strong> BO5 rondas iniciales · BO7 semifinales · BO9 gran final (Winners +1).
         Con más de 16 equipos: preliminar → octavos (sin dieciseisavos de 32).
-        Modificar torneo: <a href="admin.html">panel admin</a>.
       </p>
       <span class="db-status" id="dbStatus" title="Actualización">Cargando…</span>
     </div>
@@ -1743,69 +1758,41 @@
 
     let guideDrawTimer = null;
 
-    function computeBracketTreePositions(rounds) {
-      const pos = new Map();
-      if (!rounds?.length) return pos;
-
-      rounds[0].forEach((m, i) => pos.set(m.id, i));
-
-      for (let ri = 0; ri < rounds.length - 1; ri++) {
-        const prevIds = new Set(rounds[ri].map((m) => m.id));
-        rounds[ri + 1].forEach((m, i) => {
-          const fa = m.feedA?.matchId;
-          const fb = m.feedB?.matchId;
-          const ya = fa && prevIds.has(fa) ? pos.get(fa) : undefined;
-          const yb = fb && prevIds.has(fb) ? pos.get(fb) : undefined;
-          if (ya !== undefined && yb !== undefined) {
-            pos.set(m.id, (ya + yb) / 2);
-          } else {
-            pos.set(m.id, i);
-          }
-        });
-      }
-      return pos;
-    }
-
-    function alignFlowBracketTree(flowEl, rounds, allowedBrackets) {
+    /** Pirámide: columna con más cruces arriba→abajo; las demás centradas (de más a menos). */
+    function alignFlowBracketTree(flowEl, rounds) {
       if (!flowEl || !rounds?.length) return;
-      const pos = computeBracketTreePositions(rounds);
-      const columns = flowEl.querySelectorAll(".round-column");
+      const columns = [...flowEl.querySelectorAll(".round-column")];
       if (!columns.length) return;
 
       flowEl.querySelectorAll(".match-slot[data-match-id]").forEach((slot) => {
         slot.style.marginTop = "";
       });
+
       columns.forEach((col) => {
         col.style.minHeight = "";
+        col.classList.remove("bracket-pyramid-anchor", "bracket-pyramid-narrow");
       });
 
-      let unit = 0;
-      flowEl.querySelectorAll(".match-slot").forEach((slot) => {
-        unit = Math.max(unit, slot.offsetHeight);
-      });
-      if (!unit) return;
-
-      const colStyle = getComputedStyle(columns[0]);
-      const gapPx = parseFloat(colStyle.gap) || 10;
-      const step = unit + gapPx;
-
-      let maxIndex = 0;
-      pos.forEach((v) => {
-        if (v > maxIndex) maxIndex = v;
-      });
-      const colMinH = maxIndex * step + unit;
+      let anchorCol = columns[0];
+      let maxSlots = anchorCol.querySelectorAll(".match-slot").length;
       columns.forEach((col) => {
-        col.style.minHeight = colMinH + "px";
+        const n = col.querySelectorAll(".match-slot").length;
+        if (n > maxSlots) {
+          maxSlots = n;
+          anchorCol = col;
+        }
       });
+
+      anchorCol.classList.add("bracket-pyramid-anchor");
+      const anchorH = anchorCol.offsetHeight;
+      if (!anchorH) return;
 
       columns.forEach((col) => {
-        const slots = col.querySelectorAll(".match-slot[data-match-id]");
-        slots.forEach((slot, i) => {
-          const target = pos.get(slot.dataset.matchId);
-          const index = target !== undefined ? target : i;
-          const offset = (index - i) * step;
-          if (offset > 0) slot.style.marginTop = offset + "px";
-        });
+        col.style.minHeight = anchorH + "px";
+        const n = col.querySelectorAll(".match-slot").length;
+        if (col !== anchorCol && n < maxSlots) {
+          col.classList.add("bracket-pyramid-narrow");
+        }
       });
     }
 
@@ -1919,6 +1906,8 @@
     function drawAllBracketGuides() {
       const section = document.getElementById("bracketSection");
       if (!section || section.hidden) return;
+      alignFlowBracketTree(document.getElementById("winnersFlow"), buildWinnersRounds());
+      alignFlowBracketTree(document.getElementById("losersFlow"), buildLosersRounds());
       drawBracketGuidesForFlow(document.getElementById("winnersFlow"), ["preliminary", "winners"], "-w");
       drawBracketGuidesForFlow(document.getElementById("losersFlow"), ["preliminary-lb", "losers"], "-l");
     }
@@ -2283,16 +2272,8 @@
         roundLabelFn: (ri) => losersRoundLabel(ri),
       });
 
-      alignFlowBracketTree(
-        document.getElementById("winnersFlow"),
-        buildWinnersRounds(),
-        ["preliminary", "winners"]
-      );
-      alignFlowBracketTree(
-        document.getElementById("losersFlow"),
-        buildLosersRounds(),
-        ["preliminary-lb", "losers"]
-      );
+      alignFlowBracketTree(document.getElementById("winnersFlow"), buildWinnersRounds());
+      alignFlowBracketTree(document.getElementById("losersFlow"), buildLosersRounds());
 
       const grandEl = document.getElementById("grandBracket");
       grandEl.innerHTML = "";
