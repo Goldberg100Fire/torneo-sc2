@@ -1975,27 +1975,6 @@
       setTimeout(() => slot.classList.remove("guide-highlight"), 2800);
     }
 
-    function ensureBracketGuideSvg(flowEl, markerSuffix) {
-      let svg = flowEl.querySelector(":scope > svg.bracket-guide-lines");
-      if (!svg) {
-        svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.setAttribute("class", "bracket-guide-lines");
-        svg.setAttribute("aria-hidden", "true");
-        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const suf = markerSuffix || "";
-        defs.innerHTML =
-          '<marker id="arrow-win' +
-          suf +
-          '" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#00d4ff"/></marker>' +
-          '<marker id="arrow-lose' +
-          suf +
-          '" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c98bc9"/></marker>';
-        svg.appendChild(defs);
-        flowEl.insertBefore(svg, flowEl.firstChild);
-      }
-      return { svg, markerSuffix: markerSuffix || "" };
-    }
-
     let guideDrawTimer = null;
 
     /** Pirámide: columna con más cruces arriba→abajo; las demás centradas (de más a menos). */
@@ -2036,128 +2015,17 @@
       });
     }
 
-    function appendBracketGuidePath(svg, d, pathKind, markerSuffix) {
-      const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      pathEl.setAttribute("d", d);
-      pathEl.setAttribute("stroke", pathKind === "winner" ? "#4de8ff" : "#e09ce0");
-      pathEl.setAttribute("stroke-width", "2");
-      pathEl.setAttribute("fill", "none");
-      pathEl.setAttribute("stroke-linecap", "round");
-      pathEl.setAttribute("stroke-linejoin", "round");
-      pathEl.setAttribute(
-        "marker-end",
-        pathKind === "winner" ? "url(#arrow-win" + markerSuffix + ")" : "url(#arrow-lose" + markerSuffix + ")"
-      );
-      pathEl.setAttribute("opacity", "0.88");
-      svg.appendChild(pathEl);
-    }
-
-    function drawSingleBracketConnector(svg, flowRect, from, to, pathKind, suf) {
-      const fr = from.getBoundingClientRect();
-      const tr = to.getBoundingClientRect();
-      const x1 = fr.right - flowRect.left;
-      const y1 = fr.top + fr.height / 2 - flowRect.top;
-      const x2 = tr.left - flowRect.left;
-      const y2 = tr.top + tr.height / 2 - flowRect.top;
-      const midX = x1 + Math.max(14, (x2 - x1) * 0.42);
-      let pathD;
-      if (Math.abs(y1 - y2) < 4) {
-        pathD = "M " + x1 + " " + y1 + " H " + (x2 - 2);
-      } else {
-        pathD = "M " + x1 + " " + y1 + " H " + midX + " V " + y2 + " H " + (x2 - 2);
-      }
-      appendBracketGuidePath(svg, pathD, pathKind, suf);
-    }
-
-    function drawForkBracketConnector(svg, flowRect, sources, dest, pathKind, suf) {
-      const tr = dest.getBoundingClientRect();
-      const x2 = tr.left - flowRect.left;
-      const y2 = tr.top + tr.height / 2 - flowRect.top;
-
-      const pts = sources
-        .map((slot) => {
-          const r = slot.getBoundingClientRect();
-          return {
-            x1: r.right - flowRect.left,
-            y1: r.top + r.height / 2 - flowRect.top,
-          };
-        })
-        .sort((a, b) => a.y1 - b.y1);
-
-      const x1max = Math.max(...pts.map((p) => p.x1));
-      const jointX = x1max + Math.max(14, (x2 - x1max) * 0.42);
-      const yTop = pts[0].y1;
-      const yBot = pts[pts.length - 1].y1;
-
-      pts.forEach((p) => {
-        appendBracketGuidePath(svg, "M " + p.x1 + " " + p.y1 + " H " + jointX, pathKind, suf);
-      });
-      appendBracketGuidePath(svg, "M " + jointX + " " + yTop + " V " + yBot, pathKind, suf);
-
-      if (y2 >= yTop && y2 <= yBot) {
-        appendBracketGuidePath(svg, "M " + jointX + " " + y2 + " H " + (x2 - 2), pathKind, suf);
-      } else if (y2 > yBot) {
-        appendBracketGuidePath(svg, "M " + jointX + " " + yBot + " V " + y2 + " H " + (x2 - 2), pathKind, suf);
-      } else {
-        appendBracketGuidePath(svg, "M " + jointX + " " + yTop + " V " + y2 + " H " + (x2 - 2), pathKind, suf);
-      }
-    }
-
-    function drawBracketGuidesForFlow(flowEl, allowedBrackets, markerSuffix) {
-      if (!flowEl) return;
-      const { svg, markerSuffix: suf } = ensureBracketGuideSvg(flowEl, markerSuffix);
-      while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
-      const flowRect = flowEl.getBoundingClientRect();
-      svg.setAttribute("width", String(Math.max(flowEl.offsetWidth, 1)));
-      svg.setAttribute("height", String(Math.max(flowEl.offsetHeight, 1)));
-
-      const allowed = new Set(allowedBrackets);
-      const slotById = new Map();
-      flowEl.querySelectorAll(".match-slot[data-match-id]").forEach((s) => {
-        slotById.set(s.dataset.matchId, s);
-      });
-
-      const edgeGroups = new Map();
-      for (const match of getAllMatchesList()) {
-        if (!allowed.has(match.bracket)) continue;
-        const from = slotById.get(match.id);
-        if (!from) continue;
-        findDestinations(match).forEach((d) => {
-          if (!allowed.has(d.dest.bracket)) return;
-          const to = slotById.get(d.dest.id);
-          if (!to) return;
-          const key = d.dest.id + "|" + d.path;
-          if (!edgeGroups.has(key)) {
-            edgeGroups.set(key, { dest: to, path: d.path, sources: [] });
-          }
-          edgeGroups.get(key).sources.push(from);
-        });
-      }
-
-      edgeGroups.forEach(({ dest, path, sources }) => {
-        if (sources.length >= 2) {
-          drawForkBracketConnector(svg, flowRect, sources, dest, path, suf);
-        } else if (sources.length === 1) {
-          drawSingleBracketConnector(svg, flowRect, sources[0], dest, path, suf);
-        }
-      });
-    }
-
-    function drawAllBracketGuides() {
+    function layoutBracketPyramid() {
       const section = document.getElementById("bracketSection");
       if (!section || section.hidden) return;
-      section.querySelectorAll("svg.bracket-guide-lines").forEach((s) => {
-        if (s.parentElement?.id !== "bracketSection") s.remove();
-      });
+      document.querySelectorAll("svg.bracket-guide-lines").forEach((s) => s.remove());
       alignFlowBracketTree(document.getElementById("winnersFlow"), buildWinnersRounds());
       alignFlowBracketTree(document.getElementById("losersFlow"), buildLosersRounds());
-      drawBracketGuidesForFlow(document.getElementById("winnersFlow"), ["preliminary", "winners"], "-w");
-      drawBracketGuidesForFlow(document.getElementById("losersFlow"), ["preliminary-lb", "losers"], "-l");
     }
 
     function scheduleBracketGuides() {
       clearTimeout(guideDrawTimer);
-      guideDrawTimer = setTimeout(drawAllBracketGuides, 60);
+      guideDrawTimer = setTimeout(layoutBracketPyramid, 60);
     }
 
     function buildWinnersRounds() {
