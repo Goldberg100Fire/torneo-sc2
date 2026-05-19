@@ -539,7 +539,7 @@
       padding: 0 1.25rem 0 1rem;
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
+      gap: 0.5rem;
       justify-content: flex-start;
       align-items: stretch;
     }
@@ -1977,28 +1977,22 @@
 
     let guideDrawTimer = null;
 
-    function computeBracketTreePositions(rounds, allowedBrackets) {
-      const allowed = new Set(allowedBrackets);
+    /** Pirámide clásica: primera columna arriba→abajo; siguientes centradas entre dos cruces previos. */
+    function computeBracketTreePositions(rounds) {
       const pos = new Map();
       if (!rounds?.length) return pos;
 
-      const lastRi = rounds.length - 1;
-      rounds[lastRi].forEach((m, i) => pos.set(m.id, i));
+      rounds[0].forEach((m, i) => pos.set(m.id, i));
 
-      for (let ri = lastRi - 1; ri >= 0; ri--) {
-        const nextIds = new Set(rounds[ri + 1].map((m) => m.id));
-        rounds[ri].forEach((m, i) => {
-          const dests = findDestinations(m).filter(
-            (d) => allowed.has(d.dest.bracket) && nextIds.has(d.dest.id)
-          );
-          const primary = dests.filter((d) => d.path === "winner");
-          const use = primary.length ? primary : dests;
-          if (use.length === 1) {
-            const y = pos.get(use[0].dest.id);
-            pos.set(m.id, y !== undefined ? y : i);
-          } else if (use.length > 1) {
-            const ys = use.map((d) => pos.get(d.dest.id)).filter((y) => y !== undefined);
-            pos.set(m.id, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : i);
+      for (let ri = 0; ri < rounds.length - 1; ri++) {
+        const prevIds = new Set(rounds[ri].map((m) => m.id));
+        rounds[ri + 1].forEach((m, i) => {
+          const fa = m.feedA?.matchId;
+          const fb = m.feedB?.matchId;
+          const ya = fa && prevIds.has(fa) ? pos.get(fa) : undefined;
+          const yb = fb && prevIds.has(fb) ? pos.get(fb) : undefined;
+          if (ya !== undefined && yb !== undefined) {
+            pos.set(m.id, (ya + yb) / 2);
           } else {
             pos.set(m.id, i);
           }
@@ -2009,7 +2003,7 @@
 
     function alignFlowBracketTree(flowEl, rounds, allowedBrackets) {
       if (!flowEl || !rounds?.length) return;
-      const pos = computeBracketTreePositions(rounds, allowedBrackets);
+      const pos = computeBracketTreePositions(rounds);
       const columns = flowEl.querySelectorAll(".round-column");
       if (!columns.length) return;
 
@@ -2066,6 +2060,57 @@
       svg.appendChild(pathEl);
     }
 
+    function drawSingleBracketConnector(svg, flowRect, from, to, pathKind, suf) {
+      const fr = from.getBoundingClientRect();
+      const tr = to.getBoundingClientRect();
+      const x1 = fr.right - flowRect.left;
+      const y1 = fr.top + fr.height / 2 - flowRect.top;
+      const x2 = tr.left - flowRect.left;
+      const y2 = tr.top + tr.height / 2 - flowRect.top;
+      const midX = x1 + Math.max(14, (x2 - x1) * 0.42);
+      let pathD;
+      if (Math.abs(y1 - y2) < 4) {
+        pathD = "M " + x1 + " " + y1 + " H " + (x2 - 2);
+      } else {
+        pathD = "M " + x1 + " " + y1 + " H " + midX + " V " + y2 + " H " + (x2 - 2);
+      }
+      appendBracketGuidePath(svg, pathD, pathKind, suf);
+    }
+
+    function drawForkBracketConnector(svg, flowRect, sources, dest, pathKind, suf) {
+      const tr = dest.getBoundingClientRect();
+      const x2 = tr.left - flowRect.left;
+      const y2 = tr.top + tr.height / 2 - flowRect.top;
+
+      const pts = sources
+        .map((slot) => {
+          const r = slot.getBoundingClientRect();
+          return {
+            x1: r.right - flowRect.left,
+            y1: r.top + r.height / 2 - flowRect.top,
+          };
+        })
+        .sort((a, b) => a.y1 - b.y1);
+
+      const x1max = Math.max(...pts.map((p) => p.x1));
+      const jointX = x1max + Math.max(14, (x2 - x1max) * 0.42);
+      const yTop = pts[0].y1;
+      const yBot = pts[pts.length - 1].y1;
+
+      pts.forEach((p) => {
+        appendBracketGuidePath(svg, "M " + p.x1 + " " + p.y1 + " H " + jointX, pathKind, suf);
+      });
+      appendBracketGuidePath(svg, "M " + jointX + " " + yTop + " V " + yBot, pathKind, suf);
+
+      if (y2 >= yTop && y2 <= yBot) {
+        appendBracketGuidePath(svg, "M " + jointX + " " + y2 + " H " + (x2 - 2), pathKind, suf);
+      } else if (y2 > yBot) {
+        appendBracketGuidePath(svg, "M " + jointX + " " + yBot + " V " + y2 + " H " + (x2 - 2), pathKind, suf);
+      } else {
+        appendBracketGuidePath(svg, "M " + jointX + " " + yTop + " V " + y2 + " H " + (x2 - 2), pathKind, suf);
+      }
+    }
+
     function drawBracketGuidesForFlow(flowEl, allowedBrackets, markerSuffix) {
       if (!flowEl) return;
       const { svg, markerSuffix: suf } = ensureBracketGuideSvg(flowEl, markerSuffix);
@@ -2080,7 +2125,7 @@
         slotById.set(s.dataset.matchId, s);
       });
 
-      const drawn = new Set();
+      const edgeGroups = new Map();
       for (const match of getAllMatchesList()) {
         if (!allowed.has(match.bracket)) continue;
         const from = slotById.get(match.id);
@@ -2089,28 +2134,21 @@
           if (!allowed.has(d.dest.bracket)) return;
           const to = slotById.get(d.dest.id);
           if (!to) return;
-          const key = match.id + "->" + d.dest.id + "|" + d.path;
-          if (drawn.has(key)) return;
-          drawn.add(key);
-
-          const fr = from.getBoundingClientRect();
-          const tr = to.getBoundingClientRect();
-          const x1 = fr.right - flowRect.left;
-          const y1 = fr.top + fr.height / 2 - flowRect.top;
-          const x2 = tr.left - flowRect.left;
-          const y2 = tr.top + tr.height / 2 - flowRect.top;
-          const gap = Math.max(16, (x2 - x1) * 0.38);
-          const midX = x1 + gap;
-
-          let pathD;
-          if (Math.abs(y1 - y2) < 4) {
-            pathD = "M " + x1 + " " + y1 + " H " + (x2 - 2);
-          } else {
-            pathD = "M " + x1 + " " + y1 + " H " + midX + " V " + y2 + " H " + (x2 - 2);
+          const key = d.dest.id + "|" + d.path;
+          if (!edgeGroups.has(key)) {
+            edgeGroups.set(key, { dest: to, path: d.path, sources: [] });
           }
-          appendBracketGuidePath(svg, pathD, d.path, suf);
+          edgeGroups.get(key).sources.push(from);
         });
       }
+
+      edgeGroups.forEach(({ dest, path, sources }) => {
+        if (sources.length >= 2) {
+          drawForkBracketConnector(svg, flowRect, sources, dest, path, suf);
+        } else if (sources.length === 1) {
+          drawSingleBracketConnector(svg, flowRect, sources[0], dest, path, suf);
+        }
+      });
     }
 
     function drawAllBracketGuides() {
