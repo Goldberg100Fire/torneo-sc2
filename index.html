@@ -868,25 +868,72 @@
       }
     }
 
-    async function loadFromFirestore() {
-      if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
-      const cfg = window.FIREBASE_SC2_CONFIG;
-      const col = cfg.firestoreCollection;
-      const doc = cfg.firestoreDocumentId;
+    function readLocalPayload() {
       try {
-        const ref = firestoreDb.collection(col).doc(doc);
-        const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
-        if (!snap.exists) return false;
-        const d = snap.data();
-        const payload = d.payload != null ? d.payload : d.data;
-        if (!payload || typeof payload !== "object") return false;
-        applyPayload(payload);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-        return true;
+        let raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
+        return raw ? JSON.parse(raw) : null;
       } catch (e) {
-        console.warn("Firestore lectura:", e);
-        return false;
+        return null;
       }
+    }
+
+    function applyMergedPayload(merged) {
+      if (!merged) return false;
+      applyPayload(merged);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      } catch (e) {
+        console.warn("localStorage:", e);
+      }
+      return true;
+    }
+
+    async function fetchCloudPayload() {
+      let fromFirestore = null;
+      let fromServer = null;
+
+      if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
+        const cfg = window.FIREBASE_SC2_CONFIG;
+        try {
+          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+          const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
+          if (snap.exists) {
+            const d = snap.data();
+            fromFirestore = d.payload != null ? d.payload : d.data;
+          }
+        } catch (e) {
+          console.warn("Firestore lectura:", e);
+        }
+      }
+
+      if (!isFileMode) {
+        try {
+          const res = await fetch(API);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.data) fromServer = json.data;
+          }
+        } catch (e) {
+          /* sin servidor */
+        }
+      }
+
+      if (fromFirestore && fromServer) {
+        return choosePayload(fromServer, fromFirestore) || fromFirestore;
+      }
+      return fromFirestore || fromServer;
+    }
+
+    async function loadFromFirestore() {
+      const cloud = await fetchCloudPayload();
+      if (!cloud || typeof cloud !== "object") return false;
+      const local = readLocalPayload();
+      let merged = choosePayload(local, cloud);
+      if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
+        merged = local;
+      }
+      return applyMergedPayload(merged);
     }
 
     async function persistToFirestore(payload) {
@@ -920,12 +967,13 @@
         const res = await fetch(API);
         if (!res.ok) throw new Error("API " + res.status);
         const json = await res.json();
-        if (json.data) {
-          applyPayload(json.data);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
-          return true;
+        if (!json.data) return false;
+        const local = readLocalPayload();
+        let merged = choosePayload(local, json.data);
+        if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
+          merged = local;
         }
-        return false;
+        return applyMergedPayload(merged);
       } catch (e) {
         return false;
       }
@@ -2174,7 +2222,7 @@
         empty.hidden = false;
         if (PUBLIC_VIEW) {
           empty.querySelector(".empty-bracket").innerHTML =
-            "El cuadro aún no está publicado. El administrador debe sortear cruces.";
+            "El cuadro aún no está publicado. El administrador debe sortear en el panel admin (con sesión iniciada) para guardarlo en la nube.";
         }
         return;
       }
@@ -2245,15 +2293,13 @@
               if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
                 merged = local;
               }
-              if (merged) {
-                applyPayload(merged);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+              if (applyMergedPayload(merged)) {
                 renderAll();
               }
             }
           }
           const el = document.getElementById("dbStatus");
-          el.textContent = "En vivo (Firestore)";
+          el.textContent = hasBracketData(state) ? "Cuadro publicado (en vivo)" : "En vivo (Firestore)";
           el.className = "db-status online";
         },
         (err) => {
@@ -2306,19 +2352,48 @@
         if (!ok) firebaseReady = false;
       }
 
-      let loaded = false;
-      if (firebaseReady) loaded = await loadFromFirestore();
-      if (!loaded) loaded = await loadFromDatabase();
+      const cloud = await fetchCloudPayload();
+      const local = readLocalPayload();
+      let merged = choosePayload(local, cloud);
+      if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
+        merged = local;
+      }
 
+      const loaded = applyMergedPayload(merged);
       if (loaded) {
         renderAll();
-        if (firebaseReady) showToast("Sincronizado con Firestore");
+        if (hasBracketData(merged)) {
+          const el = document.getElementById("dbStatus");
+          el.textContent = "Cuadro publicado (en vivo)";
+          el.className = "db-status online";
+        }
       }
 
       updateStorageBadge();
+      return loaded && hasBracketData(merged);
+    }
 
-      if (firebaseReady && window.FIREBASE_SC2_CONFIG?.enabled === true) {
-        showToast("Conectado a Firebase Firestore");
+    async function pollServerTournament() {
+      if (isFileMode || PUBLIC_VIEW === false) return;
+      try {
+        const res = await fetch(API);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json.data) return;
+        const local = readLocalPayload();
+        let merged = choosePayload(local, json.data);
+        if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
+          merged = local;
+        }
+        if (!merged || !hasBracketData(merged)) return;
+        if (state.drawn && state.bracket) return;
+        applyMergedPayload(merged);
+        renderAll();
+        const el = document.getElementById("dbStatus");
+        el.textContent = "Cuadro publicado (servidor)";
+        el.className = "db-status online";
+      } catch (e) {
+        /* ignore */
       }
     }
 
@@ -2354,22 +2429,23 @@
           renderAll();
           loadFirebaseSdk()
             .then(async () => {
-              initFirebaseFromConfig();
-              if (firebaseReady) {
-                const ok = await loadFromFirestore();
-                if (ok) renderAll();
-                subscribePublicFirestore();
+              await syncFromCloud();
+              if (firebaseReady) subscribePublicFirestore();
+              if (!isFileMode) {
+                setInterval(pollServerTournament, 12000);
               }
-              if (!firebaseReady) {
+              if (!firebaseReady && !sqliteListening) {
                 const el = document.getElementById("dbStatus");
-                el.textContent = firebaseInitError ? "Firebase: error" : "Solo datos locales";
+                el.textContent = firebaseInitError ? "Firebase: error" : "Sin conexión al torneo";
                 if (firebaseInitError) el.title = firebaseInitError;
               }
             })
             .catch((e) => {
               const el = document.getElementById("dbStatus");
-              el.textContent = "Sin conexión Firebase";
+              el.textContent = "Sin conexión";
               el.title = e?.message || String(e);
+              pollServerTournament();
+              if (!isFileMode) setInterval(pollServerTournament, 12000);
             });
           return;
         }
