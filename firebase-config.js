@@ -1,31 +1,20 @@
 /**
- * Firebase opcional para guardar el torneo en la nube (Firestore).
- *
- * Pasos rápidos:
- * 1) https://console.firebase.google.com → Crear proyecto (o usar uno existente).
- * 2) Añadir app Web → copia los valores del objeto firebaseConfig.
- * 3) Firestore Database → crear base en modo producción → Reglas:
- *    (solo pruebas locales) permite lectura/escritura temporal;
- *    en producción usa Firebase Authentication y reglas restringidas.
- * 4) Copia firebase-config.example.js → firebase-config.local.js
- * 5) Pon enabled: true y rellena firebaseConfig en firebase-config.local.js
- *
- * Guía completa: SETUP-FIREBASE.txt
- * IMPORTANTE: no subas firebase-config.local.js a un repo público.
+ * Firebase / Firestore (configuración pública de app web).
+ * Las claves de cliente van en el navegador; la seguridad la dan las reglas de Firestore.
+ * Para desarrollo local puedes sobreescribir en firebase-config.local.js (no se sube a Git).
  */
 window.FIREBASE_SC2_CONFIG = window.FIREBASE_SC2_CONFIG || {
-  enabled: false,
+  enabled: true,
 
-  /** Colección y documento donde se guardará el mismo JSON que en localStorage */
   firestoreCollection: "torneos_sc2",
   firestoreDocumentId: "principal",
 
   firebaseConfig: {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: "",
+    apiKey: "AIzaSyDJNqlQFXQN-1WC-FgqLzmOz7UfH8H_tJA",
+    authDomain: "torneo-sc2.firebaseapp.com",
+    projectId: "torneo-sc2",
+    storageBucket: "torneo-sc2.firebasestorage.app",
+    messagingSenderId: "538701679387",
+    appId: "1:538701679387:web:8eb70869d12cea5ba2e1be",
   },
 };
