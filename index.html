@@ -170,6 +170,41 @@
       font-weight: 600;
     }
 
+    .match-datetime-banner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+      margin: 0.5rem 0;
+      padding: 0.5rem 0.65rem;
+      background: rgba(201, 162, 39, 0.12);
+      border: 1px solid var(--gold-dim);
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .match-datetime-banner strong {
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .match-datetime-banner span {
+      font-size: 0.95rem;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .match-datetime-banner.played {
+      background: rgba(0, 212, 255, 0.08);
+      border-color: var(--accent-dim);
+    }
+
+    .match-datetime-banner.played strong {
+      color: var(--accent);
+    }
+
     button {
       font-family: "Rajdhani", sans-serif;
       font-weight: 700;
@@ -1341,20 +1376,29 @@
       };
     }
 
+    function isoToDateTimeLocalValue(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
     function appendMatchDatetimeBlock(card, match) {
-      if (match.confirmed && match.playedAt) {
-        const dt = document.createElement("p");
-        dt.className = "match-datetime";
-        dt.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
-        card.appendChild(dt);
-        return;
-      }
-      if (match.scheduledAt) {
-        const dt = document.createElement("p");
-        dt.className = "match-scheduled";
-        dt.textContent = "Programado: " + formatPlayedAt(match.scheduledAt);
-        card.appendChild(dt);
-      }
+      const when = match.confirmed
+        ? match.playedAt
+        : match.scheduledAt || match.playedAt;
+      if (!when) return;
+
+      const banner = document.createElement("div");
+      banner.className =
+        "match-datetime-banner" + (match.confirmed ? " played" : "");
+      const title = document.createElement("strong");
+      title.textContent = match.confirmed ? "Encuentro jugado" : "Fecha y hora";
+      const time = document.createElement("span");
+      time.textContent = formatPlayedAt(when);
+      banner.append(title, time);
+      card.appendChild(banner);
     }
 
     function defaultDateTimeLocal() {
@@ -1655,6 +1699,7 @@
       match.scoreA = scoreA;
       match.scoreB = scoreB;
       match.playedAt = playedAt;
+      if (!match.scheduledAt) match.scheduledAt = playedAt;
       match.winner = scoreA === need ? a : b;
       match.loser = scoreA === need ? b : a;
       match.confirmed = true;
@@ -2038,7 +2083,6 @@
               : "GF";
       idLabel.textContent = bracketLabel + " · BO" + bo;
       card.appendChild(idLabel);
-      appendMatchDatetimeBlock(card, match);
       const teamsEl = document.createElement("div");
       teamsEl.className = "match-teams";
       function teamRow(id) {
@@ -2053,6 +2097,7 @@
       }
       teamsEl.append(teamRow(a), teamRow(b));
       card.appendChild(teamsEl);
+      appendMatchDatetimeBlock(card, match);
       if (match.confirmed) {
         const res = document.createElement("div");
         res.className = "result-block";

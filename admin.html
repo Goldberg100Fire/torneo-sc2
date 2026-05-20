@@ -170,6 +170,43 @@
       font-weight: 600;
     }
 
+    .match-datetime-banner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+      margin: 0.5rem 0;
+      padding: 0.5rem 0.65rem;
+      background: rgba(201, 162, 39, 0.12);
+      border: 1px solid var(--gold-dim);
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .match-datetime-banner strong {
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .match-datetime-banner span {
+      font-size: 0.95rem;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .schedule-block {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      border: 1px dashed var(--gold-dim);
+      border-radius: 4px;
+    }
+
+    .schedule-block .datetime-label {
+      color: var(--gold);
+    }
+
     .staff-panel {
       margin: 0 1rem 1rem;
       padding: 1rem;
@@ -1666,31 +1703,54 @@
       return iso ? formatPlayedAt(iso) : null;
     }
 
+    function isoToDateTimeLocalValue(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
     function appendMatchDatetimeBlock(card, match) {
-      if (match.confirmed && match.playedAt) {
-        const dt = document.createElement("p");
-        dt.className = "match-datetime";
-        dt.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
-        card.appendChild(dt);
-        return;
-      }
-      const when = match.scheduledAt || (!match.confirmed ? null : match.playedAt);
-      if (when) {
-        const dt = document.createElement("p");
-        dt.className = match.confirmed ? "match-datetime" : "match-scheduled";
-        dt.textContent = (match.confirmed ? "Encuentro: " : "Programado: ") + formatPlayedAt(when);
-        card.appendChild(dt);
-      }
+      const when = match.confirmed
+        ? match.playedAt
+        : match.scheduledAt || match.playedAt;
+      if (!when) return;
+      const banner = document.createElement("div");
+      banner.className = "match-datetime-banner";
+      const title = document.createElement("strong");
+      title.textContent = match.confirmed ? "Encuentro jugado" : "Programado (público)";
+      const time = document.createElement("span");
+      time.textContent = formatPlayedAt(when);
+      banner.append(title, time);
+      card.appendChild(banner);
+    }
+
+    function appendScheduleEditor(card, match) {
+      if (match.confirmed) return;
+      const block = document.createElement("div");
+      block.className = "schedule-block";
+      const dtLabel = document.createElement("label");
+      dtLabel.className = "datetime-label";
+      dtLabel.textContent = "Fecha y hora del encuentro (visible en la web pública)";
+      const inpDt = document.createElement("input");
+      inpDt.type = "datetime-local";
+      inpDt.value = isoToDateTimeLocalValue(match.scheduledAt);
+      bindScheduleInput(inpDt, match);
+      block.append(dtLabel, inpDt);
+      card.appendChild(block);
     }
 
     function bindScheduleInput(inpDt, match) {
-      inpDt.addEventListener("change", () => {
+      const apply = () => {
         const iso = dateTimeLocalToIso(inpDt.value);
         if (!iso) return;
         if (match.confirmed) match.playedAt = iso;
         else match.scheduledAt = iso;
         save(true, true);
-      });
+      };
+      inpDt.addEventListener("change", apply);
+      inpDt.addEventListener("blur", apply);
     }
 
     function defaultDateTimeLocal() {
@@ -2317,6 +2377,7 @@
       match.scoreA = scoreA;
       match.scoreB = scoreB;
       match.playedAt = playedAt;
+      if (!match.scheduledAt) match.scheduledAt = playedAt;
       match.winner = scoreA === need ? a : b;
       match.loser = scoreA === need ? b : a;
       match.confirmed = true;
@@ -2700,7 +2761,6 @@
               : "Ronda inicial";
       idLabel.textContent = `${bracketLabel} · ${phase} · BO${bo}`;
       card.appendChild(idLabel);
-      appendMatchDatetimeBlock(card, match);
 
       const teamsEl = document.createElement("div");
       teamsEl.className = "match-teams";
@@ -2724,6 +2784,8 @@
 
       teamsEl.append(teamRow(a, "A"), teamRow(b, "B"));
       card.appendChild(teamsEl);
+      appendMatchDatetimeBlock(card, match);
+      appendScheduleEditor(card, match);
 
       if (isGrandWithAdvantage(match) && a && b && !match.confirmed) {
         const tag = document.createElement("span");
@@ -2790,7 +2852,7 @@
       dtLabel.textContent = "Fecha y hora del encuentro";
       const inpDt = document.createElement("input");
       inpDt.type = "datetime-local";
-      inpDt.value = isoToDateTimeLocal(match.scheduledAt || match.playedAt);
+      inpDt.value = isoToDateTimeLocalValue(match.scheduledAt) || isoToDateTimeLocal(match.playedAt);
       bindScheduleInput(inpDt, match);
       block.appendChild(dtLabel);
       block.appendChild(inpDt);
