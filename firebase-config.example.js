@@ -8,6 +8,9 @@ window.FIREBASE_SC2_CONFIG = {
   firestoreCollection: "torneos_sc2",
   firestoreDocumentId: "principal",
 
+  /** Correos que serán admin principal (pueden invitar editores). Añade el tuyo en minúsculas. */
+  bootstrapSuperAdminEmails: ["tu-correo@gmail.com"],
+
   firebaseConfig: {
     apiKey: "AIza...",
     authDomain: "TU-PROYECTO.firebaseapp.com",

@@ -154,13 +154,74 @@
       margin-bottom: 0.25rem;
     }
 
-    .match-datetime {
+    .match-datetime,
+    .match-scheduled {
       font-size: 0.9rem;
-      color: var(--accent);
       text-align: center;
       margin-top: 0.4rem;
       padding-top: 0.35rem;
       border-top: 1px solid var(--panel-border);
+    }
+
+    .match-datetime { color: var(--accent); }
+
+    .match-scheduled {
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    .staff-panel {
+      margin: 0 1rem 1rem;
+      padding: 1rem;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+    }
+
+    .staff-panel h3 {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.85rem;
+      color: var(--gold);
+      margin-bottom: 0.75rem;
+      letter-spacing: 0.08em;
+    }
+
+    .staff-invite-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .staff-invite-row input[type="email"] {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .staff-list {
+      list-style: none;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .staff-list li {
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .staff-list .role-tag {
+      color: var(--gold);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      margin-left: 0.35rem;
+    }
+
+    .role-badge {
+      font-size: 0.75rem;
+      color: var(--gold);
+      margin-left: 0.5rem;
+      text-transform: uppercase;
     }
 
     button {
@@ -726,16 +787,34 @@
     <label>Contraseña<input type="password" id="adminPassword" autocomplete="current-password" /></label>
     <div class="login-error" id="loginError"></div>
     <button type="button" class="btn-primary" id="btnLogin">Iniciar sesión</button>
+    <button type="button" class="btn-ghost" id="btnFirstPassword" style="width: 100%; margin-top: 0.5rem;">
+      Primera vez — crear mi contraseña
+    </button>
     <p style="color: var(--muted); font-size: 0.8rem; margin-top: 1rem;">
-      Crea el usuario en Firebase → Authentication → Correo/contraseña.
+      Si te invitaron por correo, usa el enlace del mensaje o el botón de arriba con tu correo.
     </p>
   </section>
 
   <div id="adminApp" hidden>
   <div class="admin-user-bar">
     <span id="adminUserLabel"></span>
+    <span class="role-badge" id="roleBadge"></span>
     <button type="button" class="btn-ghost" id="btnLogout" style="margin-left: 0.5rem;">Cerrar sesión</button>
   </div>
+
+  <section id="staffSection" class="staff-panel" hidden>
+    <h3>EQUIPO ADMINISTRADOR</h3>
+    <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
+      Invita editores por correo. Recibirán un enlace para crear su contraseña (no pueden invitar a otros).
+    </p>
+    <div class="staff-invite-row">
+      <input type="email" id="inviteEmail" placeholder="correo@ejemplo.com" autocomplete="off" />
+      <button type="button" class="btn-gold" id="btnInviteEditor">Enviar invitación</button>
+    </div>
+    <p class="login-error" id="inviteError" style="margin-bottom: 0.5rem;"></p>
+    <ul class="staff-list" id="staffList"></ul>
+  </section>
+
   <header>
     <h1>TORNEO STARCRAFT</h1>
     <p>Elige BO3, BO5, BO7 o BO9 por cada ronda del cuadro</p>
@@ -830,6 +909,8 @@
     let firebaseAuth = null;
     let firebaseInitError = "";
     let adminAppStarted = false;
+    let currentAdminRole = null;
+    let adminRolesDoc = null;
     /** Servidor SQLite (npm start) responde en /api/health */
     let sqliteListening = false;
 
@@ -1135,8 +1216,223 @@
       return !!(firebaseAuth && firebaseAuth.currentUser);
     }
 
+    function rolesDocRef() {
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      if (!firestoreDb || !cfg) return null;
+      return firestoreDb.collection(cfg.firestoreCollection).doc("admin_roles");
+    }
+
+    function normalizeEmail(email) {
+      return String(email || "").trim().toLowerCase();
+    }
+
+    function isSuperAdmin() {
+      return currentAdminRole === "super";
+    }
+
+    function canEditTournament() {
+      return currentAdminRole === "super" || currentAdminRole === "editor";
+    }
+
+    async function loadAdminRolesDoc() {
+      const ref = rolesDocRef();
+      if (!ref) return null;
+      try {
+        const snap = await ref.get();
+        adminRolesDoc = snap.exists
+          ? snap.data()
+          : { superAdminUids: [], editorUids: [], members: [] };
+        return adminRolesDoc;
+      } catch (e) {
+        console.warn("roles:", e);
+        return null;
+      }
+    }
+
+    async function ensureBootstrapSuperAdmin(user) {
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      const emails = (cfg.bootstrapSuperAdminEmails || []).map(normalizeEmail);
+      const email = normalizeEmail(user.email);
+      if (!emails.length || !emails.includes(email)) return false;
+      const ref = rolesDocRef();
+      if (!ref) return false;
+      const snap = await ref.get();
+      const data = snap.exists
+        ? snap.data()
+        : { superAdminUids: [], editorUids: [], members: [] };
+      const uids = data.superAdminUids || [];
+      if (uids.includes(user.uid)) return true;
+      const members = data.members || [];
+      const next = {
+        superAdminUids: [...uids, user.uid],
+        editorUids: data.editorUids || [],
+        members: [
+          ...members.filter((m) => m.uid !== user.uid),
+          { uid: user.uid, email, role: "super", addedAt: new Date().toISOString() },
+        ],
+      };
+      await ref.set(next, { merge: true });
+      adminRolesDoc = next;
+      return true;
+    }
+
+    async function resolveAdminRole(user) {
+      await loadAdminRolesDoc();
+      if (!adminRolesDoc) {
+        if (await ensureBootstrapSuperAdmin(user)) return "super";
+        return null;
+      }
+      const uid = user.uid;
+      if ((adminRolesDoc.superAdminUids || []).includes(uid)) return "super";
+      if ((adminRolesDoc.editorUids || []).includes(uid)) return "editor";
+      if (await ensureBootstrapSuperAdmin(user)) return "super";
+      const pending = adminRolesDoc.pendingInvites || [];
+      const email = normalizeEmail(user.email);
+      const inv = pending.find((p) => normalizeEmail(p.email) === email);
+      if (inv) {
+        await promotePendingEditor(user, inv);
+        return "editor";
+      }
+      return null;
+    }
+
+    async function promotePendingEditor(user, inv) {
+      const ref = rolesDocRef();
+      if (!ref) return;
+      const snap = await ref.get();
+      const data = snap.exists ? snap.data() : { superAdminUids: [], editorUids: [], members: [] };
+      const editorUids = [...new Set([...(data.editorUids || []), user.uid])];
+      const members = [
+        ...(data.members || []).filter((m) => m.uid !== user.uid),
+        {
+          uid: user.uid,
+          email: normalizeEmail(user.email),
+          role: "editor",
+          addedAt: new Date().toISOString(),
+          invitedBy: inv.invitedBy || null,
+        },
+      ];
+      const pendingInvites = (data.pendingInvites || []).filter(
+        (p) => normalizeEmail(p.email) !== normalizeEmail(user.email)
+      );
+      await ref.set({ editorUids, members, pendingInvites }, { merge: true });
+      adminRolesDoc = { ...data, editorUids, members, pendingInvites };
+    }
+
+    async function getIdToken() {
+      if (!firebaseAuth?.currentUser) return null;
+      return firebaseAuth.currentUser.getIdToken();
+    }
+
+    async function inviteEditorByEmail(emailRaw) {
+      const email = normalizeEmail(emailRaw);
+      if (!email || !email.includes("@")) throw new Error("Correo inválido");
+      if (!isSuperAdmin()) throw new Error("Solo el administrador principal puede invitar");
+
+      const token = await getIdToken();
+      let serverOk = false;
+      if (token) {
+        try {
+          const res = await fetch("/api/admin/invite", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + token,
+            },
+            body: JSON.stringify({ email, role: "editor" }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok) serverOk = true;
+          else if (res.status !== 503) throw new Error(json.error || "No se pudo invitar");
+        } catch (e) {
+          if (!String(e.message).includes("503")) throw e;
+        }
+      }
+
+      const ref = rolesDocRef();
+      if (ref) {
+        const snap = await ref.get();
+        const data = snap.exists ? snap.data() : { superAdminUids: [], editorUids: [], members: [] };
+        const pendingInvites = data.pendingInvites || [];
+        if (!pendingInvites.some((p) => normalizeEmail(p.email) === email)) {
+          pendingInvites.push({
+            email,
+            role: "editor",
+            invitedAt: new Date().toISOString(),
+            invitedBy: firebaseAuth.currentUser.uid,
+          });
+        }
+        await ref.set({ pendingInvites }, { merge: true });
+        adminRolesDoc = { ...data, pendingInvites };
+      }
+
+      if (serverOk || firebaseAuth) {
+        try {
+          await firebaseAuth.sendPasswordResetEmail(email, {
+            url: window.location.origin + "/admin.html",
+            handleCodeInApp: false,
+          });
+        } catch (e) {
+          if (e.code === "auth/user-not-found") {
+            throw new Error(
+              "Correo pendiente. Pide al usuario que use «Crear contraseña» en la pantalla de acceso."
+            );
+          }
+          throw e;
+        }
+      }
+    }
+
+    function renderStaffPanel() {
+      const section = document.getElementById("staffSection");
+      const list = document.getElementById("staffList");
+      if (!section || !list) return;
+      section.hidden = !isSuperAdmin();
+      if (!isSuperAdmin()) return;
+      list.innerHTML = "";
+      const members = adminRolesDoc?.members || [];
+      const pending = adminRolesDoc?.pendingInvites || [];
+      if (!members.length && !pending.length) {
+        list.innerHTML = "<li>Sin otros usuarios aún.</li>";
+        return;
+      }
+      members.forEach((m) => {
+        const li = document.createElement("li");
+        li.textContent = m.email || m.uid;
+        const tag = document.createElement("span");
+        tag.className = "role-tag";
+        tag.textContent = m.role === "super" ? "Admin principal" : "Editor";
+        li.appendChild(tag);
+        list.appendChild(li);
+      });
+      pending.forEach((p) => {
+        const li = document.createElement("li");
+        li.textContent = p.email;
+        const tag = document.createElement("span");
+        tag.className = "role-tag";
+        tag.textContent = "Invitación enviada";
+        li.appendChild(tag);
+        list.appendChild(li);
+      });
+    }
+
+    function applyRoleUI() {
+      const badge = document.getElementById("roleBadge");
+      if (badge) {
+        badge.textContent =
+          currentAdminRole === "super"
+            ? "Admin principal"
+            : currentAdminRole === "editor"
+              ? "Editor"
+              : "";
+      }
+      renderStaffPanel();
+      const resetBtn = document.getElementById("btnReset");
+      if (resetBtn) resetBtn.hidden = !isSuperAdmin();
+    }
+
     async function persistToFirestore(payload) {
-      if (!isAdminLoggedIn()) return false;
+      if (!isAdminLoggedIn() || !canEditTournament()) return false;
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const col = cfg.firestoreCollection;
@@ -1338,7 +1634,39 @@
         bestOf: 5,
         wbAdvantage: false,
         playedAt: null,
+        scheduledAt: null,
       };
+    }
+
+    function matchDisplayDatetime(iso) {
+      return iso ? formatPlayedAt(iso) : null;
+    }
+
+    function appendMatchDatetimeBlock(card, match) {
+      if (match.confirmed && match.playedAt) {
+        const dt = document.createElement("p");
+        dt.className = "match-datetime";
+        dt.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
+        card.appendChild(dt);
+        return;
+      }
+      const when = match.scheduledAt || (!match.confirmed ? null : match.playedAt);
+      if (when) {
+        const dt = document.createElement("p");
+        dt.className = match.confirmed ? "match-datetime" : "match-scheduled";
+        dt.textContent = (match.confirmed ? "Encuentro: " : "Programado: ") + formatPlayedAt(when);
+        card.appendChild(dt);
+      }
+    }
+
+    function bindScheduleInput(inpDt, match) {
+      inpDt.addEventListener("change", () => {
+        const iso = dateTimeLocalToIso(inpDt.value);
+        if (!iso) return;
+        if (match.confirmed) match.playedAt = iso;
+        else match.scheduledAt = iso;
+        save(true, true);
+      });
     }
 
     function defaultDateTimeLocal() {
@@ -2348,6 +2676,7 @@
               : "Ronda inicial";
       idLabel.textContent = `${bracketLabel} · ${phase} · BO${bo}`;
       card.appendChild(idLabel);
+      appendMatchDatetimeBlock(card, match);
 
       const teamsEl = document.createElement("div");
       teamsEl.className = "match-teams";
@@ -2389,10 +2718,6 @@
           '</strong> <span class="vs">-</span> <strong>' +
           match.scoreB +
           "</strong></div>";
-        const dtLine = document.createElement("p");
-        dtLine.className = "match-datetime";
-        dtLine.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
-        res.appendChild(dtLine);
         const nextList = findNextMatchesFromWinner(match);
         if (nextList.length) {
           const adv = document.createElement("p");
@@ -2441,7 +2766,8 @@
       dtLabel.textContent = "Fecha y hora del encuentro";
       const inpDt = document.createElement("input");
       inpDt.type = "datetime-local";
-      inpDt.value = isoToDateTimeLocal(match.playedAt);
+      inpDt.value = isoToDateTimeLocal(match.scheduledAt || match.playedAt);
+      bindScheduleInput(inpDt, match);
       block.appendChild(dtLabel);
       block.appendChild(inpDt);
 
@@ -2862,20 +3188,77 @@
       loadFirebaseSdk().then(() => {
         initFirebaseFromConfig();
         if (!firebaseAuth) return;
-        firebaseAuth.onAuthStateChanged((user) => {
+        firebaseAuth.onAuthStateChanged(async (user) => {
           const login = document.getElementById("loginScreen");
           const app = document.getElementById("adminApp");
+          const errEl = document.getElementById("loginError");
           if (user) {
-            login.hidden = true;
-            app.hidden = false;
-            document.getElementById("adminUserLabel").textContent = "Admin: " + user.email;
-            initAdminApp();
+            try {
+              await loadFirebaseSdk();
+              initFirebaseFromConfig();
+              currentAdminRole = await resolveAdminRole(user);
+              if (!currentAdminRole) {
+                await firebaseAuth.signOut();
+                errEl.textContent =
+                  "Tu cuenta no tiene permiso. Pide una invitación al administrador principal.";
+                login.hidden = false;
+                app.hidden = true;
+                return;
+              }
+              login.hidden = true;
+              app.hidden = false;
+              document.getElementById("adminUserLabel").textContent = user.email;
+              applyRoleUI();
+              initAdminApp();
+            } catch (e) {
+              errEl.textContent = e.message || "Error al verificar permisos";
+              await firebaseAuth.signOut();
+            }
           } else {
+            currentAdminRole = null;
+            adminRolesDoc = null;
             login.hidden = false;
             app.hidden = true;
             adminAppStarted = false;
           }
         });
+
+      document.getElementById("btnInviteEditor")?.addEventListener("click", async () => {
+        const err = document.getElementById("inviteError");
+        err.textContent = "";
+        try {
+          await inviteEditorByEmail(document.getElementById("inviteEmail").value);
+          document.getElementById("inviteEmail").value = "";
+          await loadAdminRolesDoc();
+          renderStaffPanel();
+          showToast("Invitación enviada por correo");
+        } catch (e) {
+          err.textContent = e.message || String(e);
+        }
+      });
+
+      document.getElementById("btnFirstPassword")?.addEventListener("click", async () => {
+        const errEl = document.getElementById("loginError");
+        errEl.textContent = "";
+        const email = document.getElementById("adminEmail").value.trim();
+        if (!email) {
+          errEl.textContent = "Escribe tu correo invitado arriba";
+          return;
+        }
+        try {
+          await loadFirebaseSdk();
+          initFirebaseFromConfig();
+          if (!firebaseAuth) throw new Error("Auth no disponible");
+          await firebaseAuth.sendPasswordResetEmail(email, {
+            url: window.location.origin + "/admin.html",
+          });
+          errEl.style.color = "var(--success)";
+          errEl.textContent = "Revisa tu correo para crear la contraseña.";
+        } catch (e) {
+          errEl.style.color = "";
+          errEl.textContent = e.message || "No se pudo enviar el correo";
+        }
+      });
       });
     }
 

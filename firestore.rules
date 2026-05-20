@@ -1,9 +1,50 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /torneos_sc2/{documentId} {
+
+    function adminRoles() {
+      return get(/databases/$(database)/documents/torneos_sc2/admin_roles);
+    }
+
+    function rolesExist() {
+      return exists(/databases/$(database)/documents/torneos_sc2/admin_roles);
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && rolesExist() &&
+        request.auth.uid in adminRoles().data.superAdminUids;
+    }
+
+    function isEditor() {
+      return isSignedIn() && rolesExist() &&
+        request.auth.uid in adminRoles().data.editorUids;
+    }
+
+    function canWriteTournament() {
+      return isSuperAdmin() || isEditor();
+    }
+
+    match /torneos_sc2/principal {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if canWriteTournament();
+    }
+
+    match /torneos_sc2/admin_roles {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSuperAdmin() ||
+        (isSignedIn() &&
+          request.auth.uid in request.resource.data.editorUids &&
+          !(request.auth.uid in resource.data.get('editorUids', [])));
+    }
+
+    match /torneos_sc2/{other} {
+      allow read: if true;
+      allow write: if canWriteTournament();
     }
   }
 }

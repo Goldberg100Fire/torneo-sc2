@@ -9,6 +9,9 @@ window.FIREBASE_SC2_CONFIG = {
   firestoreCollection: "torneos_sc2",
   firestoreDocumentId: "principal",
 
+  /** Admin principal: puede invitar editores. Pon tu correo de Firebase Auth en minúsculas. */
+  bootstrapSuperAdminEmails: [],
+
   firebaseConfig: {
     apiKey: "AIzaSyDJNqlQFXQN-1WC-FgqLzmOz7UfH8H_tJA",
     authDomain: "torneo-sc2.firebaseapp.com",

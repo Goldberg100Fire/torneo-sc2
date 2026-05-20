@@ -154,13 +154,20 @@
       margin-bottom: 0.25rem;
     }
 
-    .match-datetime {
+    .match-datetime,
+    .match-scheduled {
       font-size: 0.9rem;
-      color: var(--accent);
       text-align: center;
       margin-top: 0.4rem;
       padding-top: 0.35rem;
       border-top: 1px solid var(--panel-border);
+    }
+
+    .match-datetime { color: var(--accent); }
+
+    .match-scheduled {
+      color: var(--gold);
+      font-weight: 600;
     }
 
     button {
@@ -1330,7 +1337,24 @@
         bestOf: 5,
         wbAdvantage: false,
         playedAt: null,
+        scheduledAt: null,
       };
+    }
+
+    function appendMatchDatetimeBlock(card, match) {
+      if (match.confirmed && match.playedAt) {
+        const dt = document.createElement("p");
+        dt.className = "match-datetime";
+        dt.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
+        card.appendChild(dt);
+        return;
+      }
+      if (match.scheduledAt) {
+        const dt = document.createElement("p");
+        dt.className = "match-scheduled";
+        dt.textContent = "Programado: " + formatPlayedAt(match.scheduledAt);
+        card.appendChild(dt);
+      }
     }
 
     function defaultDateTimeLocal() {
@@ -2014,6 +2038,7 @@
               : "GF";
       idLabel.textContent = bracketLabel + " · BO" + bo;
       card.appendChild(idLabel);
+      appendMatchDatetimeBlock(card, match);
       const teamsEl = document.createElement("div");
       teamsEl.className = "match-teams";
       function teamRow(id) {
@@ -2032,10 +2057,6 @@
         const res = document.createElement("div");
         res.className = "result-block";
         res.innerHTML = "<h4>Resultado</h4><div class=\"score-row\"><strong>" + match.scoreA + "</strong> - <strong>" + match.scoreB + "</strong></div>";
-        const dt = document.createElement("p");
-        dt.className = "match-datetime";
-        dt.textContent = "Encuentro: " + formatPlayedAt(match.playedAt);
-        res.appendChild(dt);
         const nextList = findNextMatchesFromWinner(match);
         if (nextList.length) {
           const adv = document.createElement("p");
