@@ -527,6 +527,26 @@
       flex-shrink: 0;
     }
 
+    .round-label-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin-bottom: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .round-label-row .round-label {
+      margin-bottom: 0;
+    }
+
+    .round-bo-readonly {
+      font-size: 0.75rem;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+    }
+
     .match-slot { position: relative; margin: 0; }
 
     .match-guide {
@@ -634,7 +654,7 @@
   <main>
     <div class="toolbar" id="toolbar">
       <p class="format-info">
-        <strong>Formatos:</strong> BO5 rondas iniciales · BO7 semifinales · BO9 gran final (Winners +1).
+        <strong>Formatos:</strong> BO por ronda (configurado en el panel admin).
         Con más de 16 equipos: preliminar → octavos (sin dieciseisavos de 32).
       </p>
       <span class="db-status" id="dbStatus" title="Actualización">Cargando…</span>
@@ -684,6 +704,7 @@
     const PUBLIC_VIEW = true;
     const STORAGE_KEY = "sc2-tournament-v2";
     const MAX_PLAYERS_PER_TEAM = 6;
+    const BO_OPTIONS = [3, 5, 7, 9];
     const API = "/api/tournament";
     const isFileMode = location.protocol === "file:";
     let firestoreUnsub = null;
@@ -694,6 +715,7 @@
       preliminary: null,
       drawInfo: null,
       drawn: false,
+      roundFormats: null,
     };
 
     let teamIdCounter = 1;
@@ -762,28 +784,217 @@
       );
     }
 
-    function choosePayload(local, cloud) {
-      if (!local && !cloud) return null;
-      if (!cloud) return local;
-      if (!local) return cloud;
-      const localHas = hasBracketData(local);
-      const cloudHas = hasBracketData(cloud);
-      if (localHas && !cloudHas) return local;
-      if (cloudHas && !localHas) return cloud;
-      if (local.drawn && !cloud.drawn) return local;
-      if (!local.drawn && cloud.drawn) return cloud;
-      const lt = Date.parse(local.savedAt || local.drawInfo?.drawnAt || 0) || 0;
-      const ct = Date.parse(cloud.savedAt || cloud.drawInfo?.drawnAt || 0) || 0;
-      return lt >= ct ? local : cloud;
+    function totalPlayersInPayload(p) {
+      return (p?.teams || []).reduce((n, t) => n + (t.players?.length || 0), 0);
     }
 
-    function assignPrelimFormats() {
-      const setBo5 = (rounds) => {
-        if (!rounds) return;
-        rounds.forEach((round) => round.forEach((m) => { m.bestOf = 5; }));
+    function payloadScore(p) {
+      if (!p) return -1;
+      let s = 0;
+      if (hasBracketData(p)) s += 1e9;
+      if (p.drawn) s += 1e8;
+      s += totalPlayersInPayload(p) * 1e5;
+      s += Date.parse(p.savedAt || p.drawInfo?.drawnAt || 0) || 0;
+      return s;
+    }
+
+    function mergeTeamPlayers(localPlayers, cloudPlayers) {
+      const a = Array.isArray(localPlayers) ? localPlayers : [];
+      const b = Array.isArray(cloudPlayers) ? cloudPlayers : [];
+      const len = Math.max(a.length, b.length);
+      const out = [];
+      for (let i = 0; i < len; i++) {
+        const lv = a[i] != null ? String(a[i]) : "";
+        const cv = b[i] != null ? String(b[i]) : "";
+        out.push(lv.trim() ? lv : cv);
+      }
+      return out.slice(0, MAX_PLAYERS_PER_TEAM);
+    }
+
+    function mergeTeams(localTeams, cloudTeams) {
+      const map = new Map();
+      for (const t of localTeams || []) {
+        map.set(t.id, { ...t, players: [...(t.players || [])] });
+      }
+      for (const ct of cloudTeams || []) {
+        if (!map.has(ct.id)) {
+          map.set(ct.id, { ...ct, players: [...(ct.players || [])] });
+          continue;
+        }
+        const lt = map.get(ct.id);
+        lt.players = mergeTeamPlayers(lt.players, ct.players);
+        if (!String(lt.name || "").trim() && String(ct.name || "").trim()) {
+          lt.name = ct.name;
+        }
+      }
+      return Array.from(map.values());
+    }
+
+    function mergePayload(local, cloud) {
+      if (!local && !cloud) return null;
+      if (!local) return cloud;
+      if (!cloud) return local;
+
+      const base = payloadScore(local) >= payloadScore(cloud) ? local : cloud;
+      const merged = {
+        ...base,
+        teams: mergeTeams(local.teams, cloud.teams),
+        teamIdCounter: Math.max(local.teamIdCounter || 0, cloud.teamIdCounter || 0),
       };
-      setBo5(state.preliminary?.rounds);
-      setBo5(state.preliminary?.loserRounds);
+
+      if (hasBracketData(local) && !hasBracketData(cloud)) {
+        merged.bracket = local.bracket;
+        merged.preliminary = local.preliminary;
+        merged.drawInfo = local.drawInfo;
+        merged.drawn = local.drawn;
+        merged.roundFormats = local.roundFormats || cloud.roundFormats;
+      } else if (hasBracketData(cloud) && !hasBracketData(local)) {
+        merged.bracket = cloud.bracket;
+        merged.preliminary = cloud.preliminary;
+        merged.drawInfo = cloud.drawInfo;
+        merged.drawn = cloud.drawn;
+        merged.roundFormats = cloud.roundFormats || local.roundFormats;
+      } else if (hasBracketData(local) && hasBracketData(cloud)) {
+        const lDraw = Date.parse(local.drawInfo?.drawnAt || 0) || 0;
+        const cDraw = Date.parse(cloud.drawInfo?.drawnAt || 0) || 0;
+        const pick = lDraw >= cDraw ? local : cloud;
+        merged.bracket = pick.bracket;
+        merged.preliminary = pick.preliminary;
+        merged.drawInfo = pick.drawInfo;
+        merged.drawn = pick.drawn;
+        merged.roundFormats = pick.roundFormats || (lDraw >= cDraw ? cloud.roundFormats : local.roundFormats);
+      }
+
+      const t = Math.max(
+        Date.parse(local.savedAt || 0) || 0,
+        Date.parse(cloud.savedAt || 0) || 0
+      );
+      merged.savedAt = t ? new Date(t).toISOString() : new Date().toISOString();
+      return merged;
+    }
+
+    function choosePayload(local, cloud) {
+      return mergePayload(local, cloud);
+    }
+
+    function winnersFormatAt(ri) {
+      const pl = state.preliminary?.rounds?.length || 0;
+      if (ri < pl) return { section: "prelimWb", index: ri };
+      return { section: "wb", index: ri - pl };
+    }
+
+    function losersFormatAt(ri) {
+      const pl = state.preliminary?.loserRounds?.length || 0;
+      if (ri < pl) return { section: "prelimLb", index: ri };
+      return { section: "lb", index: ri - pl };
+    }
+
+    function defaultRoundFormatsObject() {
+      const rf = { prelimWb: [], prelimLb: [], wb: [], lb: [], grand: 9 };
+      const plW = state.preliminary?.rounds?.length || 0;
+      for (let i = 0; i < plW; i++) rf.prelimWb.push(5);
+      const plL = state.preliminary?.loserRounds?.length || 0;
+      for (let i = 0; i < plL; i++) rf.prelimLb.push(5);
+      const wbLen = state.bracket?.wb?.length || 0;
+      for (let i = 0; i < wbLen; i++) {
+        const isFinal = i === wbLen - 1;
+        const isSemi = wbLen >= 3 && i === wbLen - 2;
+        rf.wb.push(isFinal || isSemi || (wbLen === 2 && i === 0) ? 7 : 5);
+      }
+      const lbLen = state.bracket?.lb?.length || 0;
+      const lbChampId = state.bracket?.grand?.feedB?.matchId;
+      for (let i = 0; i < lbLen; i++) {
+        const round = state.bracket.lb[i] || [];
+        const isLbFinal = round.some((m) => m.id === lbChampId);
+        const isLbSemi = round.length === 2 && i > 0 && !isLbFinal;
+        rf.lb.push(isLbFinal || isLbSemi ? 7 : 5);
+      }
+      return rf;
+    }
+
+    function syncRoundFormatsLengths() {
+      if (!state.roundFormats) state.roundFormats = defaultRoundFormatsObject();
+      const rf = state.roundFormats;
+      const pad = (arr, len, def) => {
+        while (arr.length < len) arr.push(def);
+        arr.length = len;
+      };
+      pad(rf.prelimWb, state.preliminary?.rounds?.length || 0, 5);
+      pad(rf.prelimLb, state.preliminary?.loserRounds?.length || 0, 5);
+      pad(rf.wb, state.bracket?.wb?.length || 0, 5);
+      pad(rf.lb, state.bracket?.lb?.length || 0, 5);
+      if (!BO_OPTIONS.includes(rf.grand)) rf.grand = 9;
+    }
+
+    function applyBoToRound(round, bo) {
+      if (!round) return;
+      round.forEach((m) => {
+        m.bestOf = bo;
+        if (m.bracket !== "grand") m.wbAdvantage = false;
+      });
+    }
+
+    function applyAllRoundFormats() {
+      if (!state.roundFormats) return;
+      syncRoundFormatsLengths();
+      const rf = state.roundFormats;
+      state.preliminary?.rounds?.forEach((r, i) =>
+        applyBoToRound(r, rf.prelimWb[i] ?? 5)
+      );
+      state.preliminary?.loserRounds?.forEach((r, i) =>
+        applyBoToRound(r, rf.prelimLb[i] ?? 5)
+      );
+      state.bracket?.wb?.forEach((r, i) => applyBoToRound(r, rf.wb[i] ?? 5));
+      state.bracket?.lb?.forEach((r, i) => applyBoToRound(r, rf.lb[i] ?? 5));
+      if (state.bracket?.grand) {
+        const g = state.bracket.grand;
+        g.bestOf = rf.grand ?? 9;
+        g.wbAdvantage = g.bestOf === 9;
+        if (!g.wbAdvantage && !g.confirmed && g.scoreA === 1 && g.scoreB === 0) {
+          g.scoreA = null;
+          g.scoreB = null;
+        }
+      }
+    }
+
+    function inferRoundFormatsFromMatches() {
+      const pick = (round) => round?.[0]?.bestOf ?? 5;
+      state.roundFormats = {
+        prelimWb: (state.preliminary?.rounds || []).map(pick),
+        prelimLb: (state.preliminary?.loserRounds || []).map(pick),
+        wb: (state.bracket?.wb || []).map(pick),
+        lb: (state.bracket?.lb || []).map(pick),
+        grand: state.bracket?.grand?.bestOf ?? 9,
+      };
+    }
+
+    function refreshRoundFormatsFromState() {
+      if (!state.drawn || (!state.bracket && !state.preliminary)) {
+        state.roundFormats = null;
+        return;
+      }
+      if (!state.roundFormats) inferRoundFormatsFromMatches();
+      syncRoundFormatsLengths();
+      applyAllRoundFormats();
+    }
+
+    function roundBoLabel(section, index) {
+      if (!state.roundFormats) return "";
+      syncRoundFormatsLengths();
+      const bo =
+        section === "grand"
+          ? state.roundFormats.grand
+          : state.roundFormats[section]?.[index];
+      return bo ? "BO" + bo : "";
+    }
+
+    function createRoundBoReadonly(section, index) {
+      const text = roundBoLabel(section, index);
+      if (!text) return null;
+      const span = document.createElement("span");
+      span.className = "round-bo-readonly";
+      span.textContent = text;
+      return span;
     }
 
     function applyPayload(data) {
@@ -793,14 +1004,14 @@
       state.preliminary = data.preliminary || null;
       state.drawInfo = data.drawInfo || null;
       state.drawn = !!data.drawn;
+      state.roundFormats = data.roundFormats || null;
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
       if (state.bracket) {
         if (!state.bracket.size && state.bracket.wb?.length) {
           state.bracket.size = Math.pow(2, state.bracket.wb.length);
         }
-        assignMatchFormats(state.bracket);
       }
-      assignPrelimFormats();
+      refreshRoundFormatsFromState();
     }
 
     function getAllMatchesList() {
@@ -936,7 +1147,7 @@
       }
 
       if (fromFirestore && fromServer) {
-        return choosePayload(fromServer, fromFirestore) || fromFirestore;
+        return mergePayload(fromServer, fromFirestore) || fromFirestore;
       }
       return fromFirestore || fromServer;
     }
@@ -945,11 +1156,7 @@
       const cloud = await fetchCloudPayload();
       if (!cloud || typeof cloud !== "object") return false;
       const local = readLocalPayload();
-      let merged = choosePayload(local, cloud);
-      if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
-        merged = local;
-      }
-      return applyMergedPayload(merged);
+      return applyMergedPayload(mergePayload(local, cloud));
     }
 
     async function persistToFirestore(payload) {
@@ -985,11 +1192,7 @@
         const json = await res.json();
         if (!json.data) return false;
         const local = readLocalPayload();
-        let merged = choosePayload(local, json.data);
-        if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
-          merged = local;
-        }
-        return applyMergedPayload(merged);
+        return applyMergedPayload(mergePayload(local, json.data));
       } catch (e) {
         return false;
       }
@@ -1166,37 +1369,6 @@
       }
     }
 
-    /** Rondas iniciales BO5 · semifinales BO7 · gran final BO9 */
-    function assignMatchFormats(bracket) {
-      const n = bracket.size;
-      const wbRounds = Math.log2(n);
-      const wbFinalId = bracket.wb[wbRounds - 1][0].id;
-      const lbChampId = bracket.grand.feedB.matchId;
-
-      for (const match of bracket.matches) {
-        if (match.bracket === "grand") {
-          match.bestOf = 9;
-          match.wbAdvantage = true;
-          continue;
-        }
-
-        if (match.bracket === "winners") {
-          const isSemi =
-            (wbRounds >= 3 && match.round === wbRounds - 2) ||
-            (wbRounds === 2 && match.round === 1);
-          match.bestOf = isSemi ? 7 : 5;
-          continue;
-        }
-
-        if (match.bracket === "losers") {
-          const roundLen = bracket.lb[match.round]?.length ?? 0;
-          const isLbFinal = match.id === lbChampId;
-          const isLbSemi = roundLen === 2 && match.round > 0 && !isLbFinal;
-          match.bestOf = isLbFinal || isLbSemi ? 7 : 5;
-        }
-      }
-    }
-
     function feed(match, slot) {
       return { matchId: match.id, slot };
     }
@@ -1301,9 +1473,7 @@
       grand.feedB = feed(lbChamp, "winner");
       matches.push(grand);
 
-      const result = { matches, wb, lb: lb.filter((r) => r?.length), grand, size: n };
-      assignMatchFormats(result);
-      return result;
+      return { matches, wb, lb: lb.filter((r) => r?.length), grand, size: n };
     }
 
     function buildBracketSimple(seededTeamIds) {
@@ -1351,9 +1521,7 @@
           playedAt: null,
         };
         matches.push(grand);
-        const result = { matches, wb: [[wb]], lb: [], grand, size: 2 };
-        assignMatchFormats(result);
-        return result;
+        return { matches, wb: [[wb]], lb: [], grand, size: 2 };
       }
 
       return buildBracket(seededTeamIds);
@@ -2068,12 +2236,20 @@
       rounds.forEach((roundMatches, ri) => {
         const col = document.createElement("div");
         col.className = "round-column";
+        const labelRow = document.createElement("div");
+        labelRow.className = "round-label-row";
         const label = document.createElement("div");
         label.className = "round-label";
         label.textContent = options.roundLabelFn
           ? options.roundLabelFn(ri, totalRounds, roundMatches.length)
           : wbRoundLabel(ri, totalRounds, roundMatches.length);
-        col.appendChild(label);
+        labelRow.appendChild(label);
+        if (options.formatAt) {
+          const { section, index } = options.formatAt(ri);
+          const boTag = createRoundBoReadonly(section, index);
+          if (boTag) labelRow.appendChild(boTag);
+        }
+        col.appendChild(labelRow);
         roundMatches.forEach((m) => {
           const slot = document.createElement("div");
           slot.className =
@@ -2138,9 +2314,11 @@
 
       renderBracketColumn(document.getElementById("winnersBracket"), buildWinnersRounds(), {
         roundLabelFn: (ri) => winnersRoundLabel(ri),
+        formatAt: winnersFormatAt,
       });
       renderBracketColumn(document.getElementById("losersBracket"), buildLosersRounds(), {
         roundLabelFn: (ri) => losersRoundLabel(ri),
+        formatAt: losersFormatAt,
       });
 
       alignFlowBracketTree(document.getElementById("winnersFlow"), buildWinnersRounds());
@@ -2150,6 +2328,15 @@
       grandEl.innerHTML = "";
       const col = document.createElement("div");
       col.className = "round-column";
+      const grandLabelRow = document.createElement("div");
+      grandLabelRow.className = "round-label-row";
+      const grandLabel = document.createElement("div");
+      grandLabel.className = "round-label";
+      grandLabel.textContent = "Gran final";
+      grandLabelRow.appendChild(grandLabel);
+      const grandBo = createRoundBoReadonly("grand", 0);
+      if (grandBo) grandLabelRow.appendChild(grandBo);
+      col.appendChild(grandLabelRow);
       const grandSlot = document.createElement("div");
       grandSlot.className = "match-slot";
       grandSlot.dataset.matchId = state.bracket.grand.id;
@@ -2179,10 +2366,7 @@
               } catch (e) {
                 /* ignore */
               }
-              let merged = choosePayload(local, payload);
-              if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
-                merged = local;
-              }
+              const merged = mergePayload(local, payload);
               if (applyMergedPayload(merged)) {
                 renderAll();
               }
@@ -2244,10 +2428,7 @@
 
       const cloud = await fetchCloudPayload();
       const local = readLocalPayload();
-      let merged = choosePayload(local, cloud);
-      if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
-        merged = local;
-      }
+      const merged = mergePayload(local, cloud);
 
       const loaded = applyMergedPayload(merged);
       if (loaded) {
@@ -2271,12 +2452,11 @@
         const json = await res.json();
         if (!json.data) return;
         const local = readLocalPayload();
-        let merged = choosePayload(local, json.data);
-        if (merged && local && hasBracketData(local) && !hasBracketData(merged)) {
-          merged = local;
-        }
+        const merged = mergePayload(local, json.data);
         if (!merged || !hasBracketData(merged)) return;
-        if (state.drawn && state.bracket) return;
+        if (state.drawn && state.bracket && hasBracketData(local)) {
+          if (payloadScore(merged) <= payloadScore(local)) return;
+        }
         applyMergedPayload(merged);
         renderAll();
         const el = document.getElementById("dbStatus");
