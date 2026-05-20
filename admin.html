@@ -1276,21 +1276,45 @@
       return true;
     }
 
+    function isBootstrapSuperEmail(user) {
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      const emails = (cfg.bootstrapSuperAdminEmails || []).map(normalizeEmail);
+      return emails.length > 0 && emails.includes(normalizeEmail(user.email));
+    }
+
     async function resolveAdminRole(user) {
-      await loadAdminRolesDoc();
-      if (!adminRolesDoc) {
-        if (await ensureBootstrapSuperAdmin(user)) return "super";
-        return null;
+      const bootstrapSuper = isBootstrapSuperEmail(user);
+
+      try {
+        await loadAdminRolesDoc();
+      } catch (e) {
+        console.warn("roles:", e);
       }
-      const uid = user.uid;
-      if ((adminRolesDoc.superAdminUids || []).includes(uid)) return "super";
-      if ((adminRolesDoc.editorUids || []).includes(uid)) return "editor";
-      if (await ensureBootstrapSuperAdmin(user)) return "super";
-      const pending = adminRolesDoc.pendingInvites || [];
+
+      if (adminRolesDoc) {
+        const uid = user.uid;
+        if ((adminRolesDoc.superAdminUids || []).includes(uid)) return "super";
+        if ((adminRolesDoc.editorUids || []).includes(uid)) return "editor";
+      }
+
+      if (bootstrapSuper) {
+        try {
+          await ensureBootstrapSuperAdmin(user);
+        } catch (e) {
+          console.warn("No se pudo escribir admin_roles en Firestore:", e);
+        }
+        return "super";
+      }
+
+      const pending = adminRolesDoc?.pendingInvites || [];
       const email = normalizeEmail(user.email);
       const inv = pending.find((p) => normalizeEmail(p.email) === email);
       if (inv) {
-        await promotePendingEditor(user, inv);
+        try {
+          await promotePendingEditor(user, inv);
+        } catch (e) {
+          console.warn("promote editor:", e);
+        }
         return "editor";
       }
       return null;

@@ -10,7 +10,7 @@ window.FIREBASE_SC2_CONFIG = {
   firestoreDocumentId: "principal",
 
   /** Admin principal: puede invitar editores. Pon tu correo de Firebase Auth en minúsculas. */
-  bootstrapSuperAdminEmails: [],
+  bootstrapSuperAdminEmails: ["geylquimichen@ucvvirtual.edu.pe"],
 
   firebaseConfig: {
     apiKey: "AIzaSyDJNqlQFXQN-1WC-FgqLzmOz7UfH8H_tJA",
