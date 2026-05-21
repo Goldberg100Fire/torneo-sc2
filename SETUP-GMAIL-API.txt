@@ -71,7 +71,8 @@ Environment → Add:
   EMAIL_FROM            = Torneo SC2 <tu@gmail.com>
   APP_PUBLIC_URL        = https://torneo-sc2.onrender.com/admin.html
 
-Puedes ELIMINAR variables Resend/SMTP si ya no las usas (opcional).
+IMPORTANTE: En Render BORRA estas variables si existen (si no, /api/health dirá smtp y no enviará):
+  SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, RESEND_API_KEY
 
 Save → espera deploy.
 

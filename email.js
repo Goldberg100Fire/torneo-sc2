@@ -53,11 +53,12 @@ function getTransporter() {
   return { transporter, from: cfg.from };
 }
 
-/** Prioridad: Gmail API > Resend API > SMTP (Render bloquea SMTP). */
+/** Prioridad: Gmail API > Resend API > SMTP (solo local; Render bloquea SMTP). */
 export function getEmailMode() {
   if (gmailApiConfig()) return "gmail-api";
   if (resendApiConfig()) return "resend-api";
-  if (smtpConfig()) return "smtp";
+  const onRender = !!(process.env.RENDER || process.env.RENDER_SERVICE_NAME);
+  if (smtpConfig() && !onRender) return "smtp";
   return null;
 }
 
