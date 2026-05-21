@@ -1,0 +1,73 @@
+================================================================================
+  SOLUCIONAR: "Firebase Admin no configurado en el servidor" (Render)
+================================================================================
+
+Ese error = la variable FIREBASE_SERVICE_ACCOUNT_JSON NO está en Render,
+está vacía, o el JSON está mal pegado.
+
+PASO 1 — Descargar clave (solo una vez)
+--------------------------------------
+1. https://console.firebase.google.com  → proyecto torneo-sc2
+2. Engranaje "Configuración del proyecto"
+3. Pestaña "Cuentas de servicio"
+4. Botón "Generar nueva clave privada" → descarga torneo-sc2-xxxxx.json
+
+PASO 2 — Pegar en Render (nombre EXACTO)
+----------------------------------------
+1. https://dashboard.render.com → tu Web Service torneo-sc2
+2. Menú izquierdo: Environment
+3. Add Environment Variable:
+
+   Key (copiar exacto):
+   FIREBASE_SERVICE_ACCOUNT_JSON
+
+   Value:
+   - Abre el archivo .json con Bloc de notas
+   - Selecciona TODO (Ctrl+A) y copia
+   - En Render, pega en el campo Value
+   - Debe ser UNA línea que empieza con {"type":"service_account",
+
+   IMPORTANTE:
+   - No pongas comillas extra alrededor del JSON
+   - No cortes el texto; el private_key es muy largo
+   - Si Render te da error al guardar, minifica el JSON:
+     https://jsonformatter.org/json-minify  (pega, minifica, copia una línea)
+
+4. Clic "Save, rebuild, and deploy" (o Save Changes)
+
+PASO 3 — Otras variables obligatorias para invitar
+---------------------------------------------------
+Añade también (misma pantalla Environment):
+
+   APP_PUBLIC_URL = https://torneo-sc2.onrender.com/admin.html
+
+   (Para correo, ver SETUP-EMAIL.txt: SMTP_HOST, SMTP_USER, SMTP_PASS, etc.)
+
+PASO 4 — Esperar el deploy (2–5 min)
+------------------------------------
+Render → Events / Logs hasta ver "Live" o deploy verde.
+
+PASO 5 — Comprobar (en el navegador)
+------------------------------------
+Abre:
+
+   https://torneo-sc2.onrender.com/api/health
+
+Debe verse algo así:
+
+   "firebaseAdmin": true
+   "firebaseEnvSet": true
+   "firebaseJsonValid": true
+   "firebaseHint": null
+   "emailConfigured": true    ← también necesitas SMTP para el correo
+
+Si ves:
+   firebaseEnvSet: false  → no guardaste la variable o nombre mal escrito
+   firebaseJsonValid: false → JSON roto; mira "firebaseHint"
+
+PASO 6 — Invitar de nuevo
+-------------------------
+https://torneo-sc2.onrender.com/admin.html
+Inicia sesión → Enviar invitación
+
+================================================================================

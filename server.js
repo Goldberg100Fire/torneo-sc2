@@ -85,11 +85,40 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(__dirname));
 
-app.get("/api/health", (_req, res) => {
+function firebaseEnvDiagnostics() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw || !String(raw).trim()) {
+    return { envSet: false, jsonValid: false, hint: "Falta FIREBASE_SERVICE_ACCOUNT_JSON en Render → Environment" };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed.client_email || !parsed.private_key) {
+      return {
+        envSet: true,
+        jsonValid: false,
+        hint: "El JSON no parece una cuenta de servicio de Firebase (falta client_email o private_key)",
+      };
+    }
+    return { envSet: true, jsonValid: true, hint: null };
+  } catch (e) {
+    return {
+      envSet: true,
+      jsonValid: false,
+      hint: `JSON inválido: ${e.message}. Pega el .json en UNA sola línea o usa comillas escapadas.`,
+    };
+  }
+}
+
+app.get("/api/health", async (_req, res) => {
+  const fbEnv = firebaseEnvDiagnostics();
+  const admin = await initFirebaseAdmin();
   res.json({
     ok: true,
     db: DB_PATH,
-    firebaseAdmin: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+    firebaseAdmin: !!admin,
+    firebaseEnvSet: fbEnv.envSet,
+    firebaseJsonValid: fbEnv.jsonValid,
+    firebaseHint: fbEnv.hint,
     emailConfigured: isEmailConfigured(),
     appPublicUrl: process.env.APP_PUBLIC_URL || null,
   });
