@@ -251,7 +251,13 @@ app.post("/api/admin/invite", async (req, res) => {
     });
   }
 
-  res.json({ ok: true, uid: userRecord.uid, email, emailSent: true });
+  res.json({
+    ok: true,
+    uid: userRecord.uid,
+    email,
+    emailSent: true,
+    message: `Correo de invitación enviado a ${email}. Revisa spam si no llega en 2 minutos.`,
+  });
 });
 
 app.listen(PORT, () => {

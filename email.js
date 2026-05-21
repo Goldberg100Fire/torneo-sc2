@@ -69,13 +69,18 @@ export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCra
     </div>
   `.trim();
 
-  await t.transporter.sendMail({
-    from: t.from,
-    to,
-    subject,
-    text,
-    html,
-  });
+  try {
+    await t.transporter.sendMail({
+      from: t.from,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch (e) {
+    const detail = e.response || e.message || String(e);
+    throw new Error(detail);
+  }
 }
 
 function escapeHtml(s) {

@@ -1409,8 +1409,10 @@
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "No se pudo invitar");
+      if (!json.emailSent) throw new Error("El servidor no confirmó el envío del correo.");
 
       await loadAdminRolesDoc();
+      return { email, message: json.message || `Correo enviado a ${email}` };
     }
 
     function renderStaffPanel() {
@@ -1435,12 +1437,16 @@
         li.appendChild(tag);
         list.appendChild(li);
       });
+      const memberEmails = new Set(
+        members.map((m) => normalizeEmail(m.email)).filter(Boolean)
+      );
       pending.forEach((p) => {
+        if (memberEmails.has(normalizeEmail(p.email))) return;
         const li = document.createElement("li");
         li.textContent = p.email;
         const tag = document.createElement("span");
         tag.className = "role-tag";
-        tag.textContent = "Invitación enviada";
+        tag.textContent = "Pendiente (sin contraseña)";
         li.appendChild(tag);
         list.appendChild(li);
       });
@@ -3280,15 +3286,41 @@
 
       document.getElementById("btnInviteEditor")?.addEventListener("click", async () => {
         const err = document.getElementById("inviteError");
+        const btn = document.getElementById("btnInviteEditor");
+        const emailInput = document.getElementById("inviteEmail");
         err.textContent = "";
+        err.style.color = "";
+        const raw = emailInput?.value?.trim();
+        if (!raw) {
+          err.textContent = "Escribe un correo para invitar.";
+          return;
+        }
+        const prevLabel = btn?.textContent;
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Enviando…";
+        }
         try {
-          await inviteEditorByEmail(document.getElementById("inviteEmail").value);
-          document.getElementById("inviteEmail").value = "";
-          await loadAdminRolesDoc();
+          const result = await inviteEditorByEmail(raw);
+          emailInput.value = "";
           renderStaffPanel();
-          showToast("Invitación enviada por correo");
+          err.style.color = "var(--success)";
+          err.textContent =
+            (result?.message || "Correo enviado.") +
+            " Revisa bandeja y spam (asunto: Invitación — Torneo StarCraft).";
+          showToast("Invitación enviada a " + (result?.email || raw));
         } catch (e) {
-          err.textContent = e.message || String(e);
+          let msg = e.message || String(e);
+          if (/only send|testing emails|verified domain|not authorized/i.test(msg)) {
+            msg +=
+              " Con Resend en prueba solo puedes enviar al correo de tu cuenta Resend; ver SETUP-EMAIL.txt.";
+          }
+          err.textContent = msg;
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = prevLabel || "Enviar invitación";
+          }
         }
       });
 

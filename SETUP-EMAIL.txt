@@ -34,6 +34,12 @@ Opción A — Resend (recomendado, gratis para pruebas)
 
 SMTP Resend: host smtp.resend.com, puerto 465, user "resend", pass = API key.
 
+*** MUY IMPORTANTE (cuenta nueva Resend) ***
+Solo puedes enviar a el MISMO correo con el que te registraste en Resend,
+hasta verificar un dominio propio. Si invitas a otro Gmail y "no llega",
+entra en resend.com → Emails / Logs y verás el rechazo.
+Para probar: invita primero a tu correo de cuenta Resend.
+
 --------------------------------------------------------------------------------
 Opción B — Brevo (Sendinblue)
 --------------------------------------------------------------------------------
