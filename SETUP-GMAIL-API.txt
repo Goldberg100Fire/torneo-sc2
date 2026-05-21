@@ -1,0 +1,96 @@
+================================================================================
+  GMAIL API — Invitaciones desde Render (recomendado)
+================================================================================
+
+Render bloquea SMTP. Gmail API usa HTTPS y funciona bien.
+
+Necesitas 4 variables en Render:
+  GMAIL_CLIENT_ID
+  GMAIL_CLIENT_SECRET
+  GMAIL_REFRESH_TOKEN
+  GMAIL_USER          (correo Gmail que envía, ej. tu@gmail.com)
+
+Opcional:
+  EMAIL_FROM = Torneo StarCraft <tu@gmail.com>
+  APP_PUBLIC_URL = https://torneo-sc2.onrender.com/admin.html
+
+--------------------------------------------------------------------------------
+PASO 1 — Google Cloud (mismo proyecto que Firebase torneo-sc2)
+--------------------------------------------------------------------------------
+1. https://console.cloud.google.com  → selecciona proyecto torneo-sc2
+2. Menú ☰ → APIs y servicios → Biblioteca
+3. Busca "Gmail API" → Habilitar
+
+--------------------------------------------------------------------------------
+PASO 2 — Pantalla de consentimiento OAuth
+--------------------------------------------------------------------------------
+1. APIs y servicios → Pantalla de consentimiento de OAuth
+2. Tipo: Externo → Crear
+3. Nombre de la app: Torneo SC2
+4. Correo de asistencia: tu correo
+5. Usuarios de prueba → Añadir tu Gmail (el que enviará correos)
+6. Guardar
+
+--------------------------------------------------------------------------------
+PASO 3 — Credenciales OAuth
+--------------------------------------------------------------------------------
+1. APIs y servicios → Credenciales → Crear credenciales
+2. ID de cliente de OAuth → Tipo: Aplicación web
+3. Nombre: torneo-sc2-gmail
+4. URIs de redirección autorizados → Añadir:
+     http://localhost:3333/oauth2callback
+5. Crear → copia:
+     - ID de cliente        → GMAIL_CLIENT_ID
+     - Secreto del cliente  → GMAIL_CLIENT_SECRET
+
+--------------------------------------------------------------------------------
+PASO 4 — Obtener refresh token (en tu PC, una sola vez)
+--------------------------------------------------------------------------------
+En PowerShell, carpeta del proyecto torneo-sc2:
+
+  $env:GMAIL_CLIENT_ID="PEGA_EL_CLIENT_ID"
+  $env:GMAIL_CLIENT_SECRET="PEGA_EL_CLIENT_SECRET"
+  npm install
+  node scripts/gmail-get-token.mjs
+
+- Se abre el navegador → inicia sesión con el Gmail que ENVIARÁ invitaciones
+- Acepta permiso "Enviar correo en tu nombre"
+- En la consola aparece: GMAIL_REFRESH_TOKEN=1//0xxxx...
+
+Copia ese token a Render.
+
+--------------------------------------------------------------------------------
+PASO 5 — Variables en Render
+--------------------------------------------------------------------------------
+Environment → Add:
+
+  GMAIL_CLIENT_ID       = (del paso 3)
+  GMAIL_CLIENT_SECRET   = (del paso 3)
+  GMAIL_REFRESH_TOKEN   = (del paso 4)
+  GMAIL_USER            = tu@gmail.com   (el mismo Gmail del paso 4)
+  EMAIL_FROM            = Torneo SC2 <tu@gmail.com>
+  APP_PUBLIC_URL        = https://torneo-sc2.onrender.com/admin.html
+
+Puedes ELIMINAR variables Resend/SMTP si ya no las usas (opcional).
+
+Save → espera deploy.
+
+--------------------------------------------------------------------------------
+PASO 6 — Comprobar
+--------------------------------------------------------------------------------
+https://torneo-sc2.onrender.com/api/health
+
+  "emailMode": "gmail-api"
+  "emailConfigured": true
+
+Invita desde admin.html → el correo sale desde tu Gmail (revisa spam).
+
+--------------------------------------------------------------------------------
+Errores frecuentes
+--------------------------------------------------------------------------------
+- "Access blocked" → añade tu correo en Usuarios de prueba (paso 2)
+- "invalid_grant" → vuelve a ejecutar gmail-get-token.mjs con prompt consent
+- "insufficient permission" → scope debe ser https://mail.google.com/
+- redirect_uri_mismatch → URI exacta http://localhost:3333/oauth2callback
+
+================================================================================

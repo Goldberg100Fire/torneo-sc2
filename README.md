@@ -21,7 +21,7 @@ Los datos se guardan en `localStorage` y, si hay sesión admin, en Firestore.
 
 ## Invitaciones por correo (editores)
 
-El servidor envía el correo por **SMTP** (Resend, Brevo, Gmail, etc.). Configura las variables en Render y revisa `SETUP-EMAIL.txt`.
+El servidor envía invitaciones por **Gmail API** (recomendado en Render) o Resend API. Guía: `SETUP-GMAIL-API.txt` y `SETUP-EMAIL.txt`.
 
 ## GitHub
 

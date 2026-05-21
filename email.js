@@ -1,9 +1,21 @@
 import nodemailer from "nodemailer";
 
 let transporter = null;
+let gmailClientPromise = null;
+
+function gmailApiConfig() {
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  const user = process.env.GMAIL_USER || process.env.SMTP_USER;
+  if (!clientId || !clientSecret || !refreshToken || !user) return null;
+  const from =
+    process.env.EMAIL_FROM || `Torneo StarCraft <${user.includes("@") ? user : `${user}@gmail.com`}>`;
+  return { clientId, clientSecret, refreshToken, user, from };
+}
 
 function resendApiConfig() {
-  const apiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
+  const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
   if (!apiKey || !String(apiKey).startsWith("re_")) return null;
   if (!from) return null;
@@ -41,8 +53,9 @@ function getTransporter() {
   return { transporter, from: cfg.from };
 }
 
-/** Render bloquea SMTP saliente; usar API HTTPS de Resend en producción. */
+/** Prioridad: Gmail API > Resend API > SMTP (Render bloquea SMTP). */
 export function getEmailMode() {
+  if (gmailApiConfig()) return "gmail-api";
   if (resendApiConfig()) return "resend-api";
   if (smtpConfig()) return "smtp";
   return null;
@@ -80,6 +93,66 @@ function buildInviteContent({ setupLink, appName }) {
   return { subject, text, html };
 }
 
+function encodeSubjectUtf8(subject) {
+  return `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
+}
+
+function buildRawMime({ from, to, subject, text, html }) {
+  const boundary = `torneo_${Date.now()}`;
+  const mime = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${encodeSubjectUtf8(subject)}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    text,
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    html,
+    `--${boundary}--`,
+  ].join("\r\n");
+
+  return Buffer.from(mime, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function getGmailClient() {
+  if (!gmailClientPromise) {
+    gmailClientPromise = (async () => {
+      const cfg = gmailApiConfig();
+      const { google } = await import("googleapis");
+      const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret);
+      oauth2.setCredentials({ refresh_token: cfg.refreshToken });
+      return google.gmail({ version: "v1", auth: oauth2 });
+    })();
+  }
+  return gmailClientPromise;
+}
+
+async function sendViaGmailApi({ to, from, subject, text, html }) {
+  const gmail = await getGmailClient();
+  const raw = buildRawMime({ from, to, subject, text, html });
+  try {
+    await gmail.users.messages.send({
+      userId: "me",
+      requestBody: { raw },
+    });
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message || String(e);
+    throw new Error(msg);
+  }
+}
+
 async function sendViaResendApi({ to, from, apiKey, subject, text, html }) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -112,6 +185,12 @@ export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCra
   const { subject, text, html } = buildInviteContent({ setupLink, appName });
   const mode = getEmailMode();
 
+  if (mode === "gmail-api") {
+    const cfg = gmailApiConfig();
+    await sendViaGmailApi({ to, from: cfg.from, subject, text, html });
+    return;
+  }
+
   if (mode === "resend-api") {
     const cfg = resendApiConfig();
     await sendViaResendApi({
@@ -132,7 +211,7 @@ export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCra
   }
 
   throw new Error(
-    "Correo no configurado. En Render usa RESEND_API_KEY + EMAIL_FROM (ver SETUP-EMAIL.txt). SMTP suele estar bloqueado en Render."
+    "Correo no configurado. En Render usa Gmail API (SETUP-GMAIL-API.txt) o RESEND_API_KEY."
   );
 }
 

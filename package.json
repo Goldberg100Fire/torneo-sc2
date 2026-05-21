@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "gmail:token": "node scripts/gmail-get-token.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
     "firebase-admin": "^13.0.2",
+    "googleapis": "^144.0.0",
     "nodemailer": "^6.10.0"
   }
 }

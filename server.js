@@ -182,7 +182,7 @@ app.post("/api/admin/invite", async (req, res) => {
   if (!isEmailConfigured()) {
     return res.status(503).json({
       error:
-        "Servicio de correo no configurado. En Render usa RESEND_API_KEY y EMAIL_FROM (ver SETUP-EMAIL.txt).",
+        "Servicio de correo no configurado. Usa Gmail API (SETUP-GMAIL-API.txt) o RESEND_API_KEY.",
     });
   }
 
@@ -268,7 +268,7 @@ app.listen(PORT, () => {
     console.log("Invitaciones: define FIREBASE_SERVICE_ACCOUNT_JSON en Render");
   }
   if (!isEmailConfigured()) {
-    console.log("Invitaciones: define RESEND_API_KEY + EMAIL_FROM en Render (SETUP-EMAIL.txt)");
+    console.log("Invitaciones: Gmail API (SETUP-GMAIL-API.txt) o RESEND_API_KEY");
   }
   if (!process.env.APP_PUBLIC_URL) {
     console.log("Invitaciones: define APP_PUBLIC_URL (ej. https://tu-app.onrender.com/admin.html)");
