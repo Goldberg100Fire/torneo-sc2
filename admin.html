@@ -842,7 +842,7 @@
   <section id="staffSection" class="staff-panel" hidden>
     <h3>EQUIPO ADMINISTRADOR</h3>
     <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-      Invita editores por correo (envío SMTP desde el servidor). Recibirán un enlace para crear su contraseña.
+      Invita editores por correo (Gmail API desde el servidor). Recibirán un enlace para crear su contraseña.
     </p>
     <div class="staff-invite-row">
       <input type="email" id="inviteEmail" placeholder="correo@ejemplo.com" autocomplete="off" />
@@ -3326,24 +3326,45 @@
 
       document.getElementById("btnFirstPassword")?.addEventListener("click", async () => {
         const errEl = document.getElementById("loginError");
+        const btn = document.getElementById("btnFirstPassword");
         errEl.textContent = "";
+        errEl.style.color = "";
         const email = document.getElementById("adminEmail").value.trim();
         if (!email) {
           errEl.textContent = "Escribe tu correo invitado arriba";
           return;
         }
+        if (location.protocol === "file:") {
+          errEl.textContent = "Abre el admin desde https://torneo-sc2.onrender.com/admin.html";
+          return;
+        }
+        const prevLabel = btn?.textContent;
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Enviando…";
+        }
         try {
-          await loadFirebaseSdk();
-          initFirebaseFromConfig();
-          if (!firebaseAuth) throw new Error("Auth no disponible");
-          await firebaseAuth.sendPasswordResetEmail(email, {
-            url: window.location.origin + "/admin.html",
+          const res = await fetch("/api/auth/password-setup-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              continueUrl: window.location.origin + "/admin.html",
+            }),
           });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json.error || "No se pudo enviar el correo");
           errEl.style.color = "var(--success)";
-          errEl.textContent = "Revisa tu correo para crear la contraseña.";
+          errEl.textContent =
+            (json.message || "Correo enviado.") + " Revisa bandeja y spam.";
         } catch (e) {
           errEl.style.color = "";
           errEl.textContent = e.message || "No se pudo enviar el correo";
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = prevLabel || "Primera vez — crear mi contraseña";
+          }
         }
       });
       });

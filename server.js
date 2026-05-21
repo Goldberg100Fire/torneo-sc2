@@ -8,6 +8,7 @@ import {
   gmailEnvDiagnostics,
   isEmailConfigured,
   sendInviteEmail,
+  sendPasswordSetupEmail,
 } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,7 +43,7 @@ let firebaseAdmin = null;
 
 async function initFirebaseAdmin() {
   if (firebaseAdmin) return firebaseAdmin;
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   if (!raw) return null;
   try {
     const admin = (await import("firebase-admin")).default;
@@ -169,6 +170,73 @@ function resolveContinueUrl(req) {
   if (envUrl.startsWith("http://") || envUrl.startsWith("https://")) return envUrl;
   return null;
 }
+
+/** Crear contraseña (login): envía enlace por Gmail API; no requiere estar logueado */
+app.post("/api/auth/password-setup-email", async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "Correo inválido" });
+  }
+
+  const admin = await initFirebaseAdmin();
+  if (!admin) {
+    return res.status(503).json({
+      error: "Firebase Admin no configurado en el servidor. Añade FIREBASE_SERVICE_ACCOUNT_JSON en Render.",
+    });
+  }
+
+  if (!isEmailConfigured()) {
+    return res.status(503).json({
+      error: "Correo no configurado. Configura Gmail API en Render (SETUP-GMAIL-API.txt).",
+    });
+  }
+
+  const continueUrl = resolveContinueUrl(req);
+  if (!continueUrl) {
+    return res.status(400).json({
+      error: "Falta APP_PUBLIC_URL en el servidor.",
+    });
+  }
+
+  try {
+    await admin.auth().getUserByEmail(email);
+  } catch (e) {
+    if (e.code === "auth/user-not-found") {
+      return res.status(404).json({
+        error: "No hay cuenta con este correo. Pide una invitación al administrador principal.",
+      });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  let setupLink;
+  try {
+    setupLink = await admin.auth().generatePasswordResetLink(email, {
+      url: continueUrl,
+      handleCodeInApp: false,
+    });
+  } catch (e) {
+    return res.status(500).json({
+      error: `No se pudo generar el enlace: ${e.message}`,
+    });
+  }
+
+  try {
+    await sendPasswordSetupEmail({
+      to: email,
+      setupLink,
+      appName: process.env.APP_NAME || "Torneo StarCraft",
+    });
+  } catch (e) {
+    return res.status(502).json({ error: `No se pudo enviar el correo: ${e.message}` });
+  }
+
+  res.json({
+    ok: true,
+    email,
+    message: `Correo enviado a ${email}. Revisa bandeja y spam.`,
+  });
+});
 
 /** Invitar editor: crea usuario en Auth y envía correo con enlace para contraseña */
 app.post("/api/admin/invite", async (req, res) => {

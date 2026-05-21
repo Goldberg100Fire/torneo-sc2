@@ -222,38 +222,60 @@ async function sendViaSmtp({ to, from, subject, text, html }) {
   }
 }
 
-export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCraft" }) {
-  const { subject, text, html } = buildInviteContent({ setupLink, appName });
-  const mode = getEmailMode();
+function buildPasswordSetupContent({ setupLink, appName }) {
+  const subject = `Crear contraseña — ${appName}`;
+  const text = [
+    `Hola,`,
+    ``,
+    `Solicitaste crear tu contraseña para el panel de administración de ${appName}.`,
+    ``,
+    `Abre este enlace:`,
+    setupLink,
+    ``,
+    `Si no fuiste tú, ignora este mensaje.`,
+  ].join("\n");
+  const html = `
+    <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;color:#1a1a1a">
+      <h2 style="color:#c9a227">${escapeHtml(appName)}</h2>
+      <p>Usa este enlace para <strong>crear tu contraseña</strong> e iniciar sesión en el panel.</p>
+      <p><a href="${escapeHtml(setupLink)}" style="display:inline-block;background:#c9a227;color:#0a0a0f;padding:12px 20px;text-decoration:none;border-radius:4px;font-weight:600">Crear mi contraseña</a></p>
+      <p style="font-size:13px;color:#555"><a href="${escapeHtml(setupLink)}">${escapeHtml(setupLink)}</a></p>
+    </div>
+  `.trim();
+  return { subject, text, html };
+}
 
+async function dispatchEmail({ to, from, subject, text, html }) {
+  const mode = getEmailMode();
   if (mode === "gmail-api") {
-    const cfg = gmailApiConfig();
-    await sendViaGmailApi({ to, from: cfg.from, subject, text, html });
+    await sendViaGmailApi({ to, from, subject, text, html });
     return;
   }
-
   if (mode === "resend-api") {
     const cfg = resendApiConfig();
-    await sendViaResendApi({
-      to,
-      from: cfg.from,
-      apiKey: cfg.apiKey,
-      subject,
-      text,
-      html,
-    });
+    await sendViaResendApi({ to, from: cfg.from, apiKey: cfg.apiKey, subject, text, html });
     return;
   }
-
   if (mode === "smtp") {
     const t = getTransporter();
     await sendViaSmtp({ to, from: t.from, subject, text, html });
     return;
   }
-
   throw new Error(
     "Correo no configurado. En Render usa Gmail API (SETUP-GMAIL-API.txt) o RESEND_API_KEY."
   );
+}
+
+export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCraft" }) {
+  const { subject, text, html } = buildInviteContent({ setupLink, appName });
+  const from = gmailApiConfig()?.from || resendApiConfig()?.from || getTransporter()?.from;
+  await dispatchEmail({ to, from, subject, text, html });
+}
+
+export async function sendPasswordSetupEmail({ to, setupLink, appName = "Torneo StarCraft" }) {
+  const { subject, text, html } = buildPasswordSetupContent({ setupLink, appName });
+  const from = gmailApiConfig()?.from || resendApiConfig()?.from || getTransporter()?.from;
+  await dispatchEmail({ to, from, subject, text, html });
 }
 
 function escapeHtml(s) {
