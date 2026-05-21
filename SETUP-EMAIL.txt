@@ -1,0 +1,85 @@
+================================================================================
+  INVITACIONES POR CORREO (SMTP) — Torneo StarCraft
+================================================================================
+
+Las invitaciones se envían desde el SERVIDOR (Render o npm start), no desde el
+navegador. Necesitas:
+
+  1) FIREBASE_SERVICE_ACCOUNT_JSON  (ya documentado en server.js / Render)
+  2) Variables SMTP abajo
+  3) APP_PUBLIC_URL = URL pública del admin (debe estar en dominios autorizados
+     de Firebase Authentication)
+
+--------------------------------------------------------------------------------
+Variables en Render (Environment) o en tu PC antes de npm start
+--------------------------------------------------------------------------------
+
+  SMTP_HOST=smtp.resend.com
+  SMTP_PORT=465
+  SMTP_SECURE=true
+  SMTP_USER=resend
+  SMTP_PASS=re_xxxxxxxx          ← API key de Resend
+  EMAIL_FROM=Torneo SC2 <onboarding@resend.dev>
+  APP_PUBLIC_URL=https://TU-SERVICIO.onrender.com/admin.html
+
+--------------------------------------------------------------------------------
+Opción A — Resend (recomendado, gratis para pruebas)
+--------------------------------------------------------------------------------
+
+1. Cuenta en https://resend.com
+2. API Keys → Create API Key
+3. Domains: verifica un dominio O usa el dominio de prueba para enviar solo
+   a tu propio correo al principio.
+4. En Render, pon las variables de arriba con tu API key como SMTP_PASS.
+
+SMTP Resend: host smtp.resend.com, puerto 465, user "resend", pass = API key.
+
+--------------------------------------------------------------------------------
+Opción B — Brevo (Sendinblue)
+--------------------------------------------------------------------------------
+
+  SMTP_HOST=smtp-relay.brevo.com
+  SMTP_PORT=587
+  SMTP_SECURE=false
+  SMTP_USER=tu-login-brevo@email.com
+  SMTP_PASS=clave SMTP de Brevo (SMTP & API)
+  EMAIL_FROM=Torneo SC2 <tu-correo-verificado@dominio.com>
+
+--------------------------------------------------------------------------------
+Opción C — Gmail (solo pruebas; límite bajo)
+--------------------------------------------------------------------------------
+
+1. Cuenta Google → Seguridad → Verificación en 2 pasos activada
+2. Contraseñas de aplicaciones → genera una para "Correo"
+3. Variables:
+
+  SMTP_HOST=smtp.gmail.com
+  SMTP_PORT=587
+  SMTP_SECURE=false
+  SMTP_USER=tu@gmail.com
+  SMTP_PASS=xxxx xxxx xxxx xxxx
+  EMAIL_FROM=Torneo SC2 <tu@gmail.com>
+
+--------------------------------------------------------------------------------
+Firebase — dominio del enlace
+--------------------------------------------------------------------------------
+
+Authentication → Settings → Authorized domains:
+  - localhost (desarrollo)
+  - tu-proyecto.firebaseapp.com
+  - TU-SERVICIO.onrender.com  (sin https://)
+
+APP_PUBLIC_URL debe usar el mismo host, por ejemplo:
+  https://torneo-sc2.onrender.com/admin.html
+
+--------------------------------------------------------------------------------
+Comprobar
+--------------------------------------------------------------------------------
+
+1. Despliega en Render con todas las variables.
+2. Abre https://TU-SERVICIO.onrender.com/api/health
+   Debe mostrar: firebaseAdmin: true, emailConfigured: true
+3. En admin.html (misma URL), inicia sesión como admin principal e invita.
+4. Revisa spam. El asunto es: "Invitación — Torneo StarCraft (crear tu contraseña)"
+
+================================================================================

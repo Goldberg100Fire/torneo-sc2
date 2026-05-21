@@ -19,6 +19,10 @@ Web para gestionar un torneo de StarCraft con cuadro de ganadores, repechaje (lo
 
 Los datos se guardan en `localStorage` y, si hay sesión admin, en Firestore.
 
+## Invitaciones por correo (editores)
+
+El servidor envía el correo por **SMTP** (Resend, Brevo, Gmail, etc.). Configura las variables en Render y revisa `SETUP-EMAIL.txt`.
+
 ## GitHub
 
 ```bash

@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { isEmailConfigured, sendInviteEmail } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -89,6 +90,8 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     db: DB_PATH,
     firebaseAdmin: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+    emailConfigured: isEmailConfigured(),
+    appPublicUrl: process.env.APP_PUBLIC_URL || null,
   });
 });
 
@@ -121,7 +124,15 @@ app.delete("/api/tournament", (_req, res) => {
   res.json({ ok: true });
 });
 
-/** Invitar editor: crea usuario en Auth y deja listo el correo de contraseña */
+function resolveContinueUrl(req) {
+  const fromBody = String(req.body?.continueUrl || "").trim();
+  if (fromBody.startsWith("http://") || fromBody.startsWith("https://")) return fromBody;
+  const envUrl = String(process.env.APP_PUBLIC_URL || "").trim();
+  if (envUrl.startsWith("http://") || envUrl.startsWith("https://")) return envUrl;
+  return null;
+}
+
+/** Invitar editor: crea usuario en Auth y envía correo con enlace para contraseña */
 app.post("/api/admin/invite", async (req, res) => {
   const auth = await verifyAuthHeader(req);
   if (auth.error) return res.status(auth.status).json({ error: auth.error });
@@ -136,6 +147,21 @@ app.post("/api/admin/invite", async (req, res) => {
   }
   if (!email || !email.includes("@")) {
     return res.status(400).json({ error: "Correo inválido" });
+  }
+
+  if (!isEmailConfigured()) {
+    return res.status(503).json({
+      error:
+        "Servicio de correo no configurado. Define SMTP_HOST, SMTP_USER, SMTP_PASS y EMAIL_FROM en el servidor (ver SETUP-EMAIL.txt).",
+    });
+  }
+
+  const continueUrl = resolveContinueUrl(req);
+  if (!continueUrl) {
+    return res.status(400).json({
+      error:
+        "Falta URL de retorno. Define APP_PUBLIC_URL en el servidor o envía continueUrl desde el panel.",
+    });
   }
 
   const admin = await initFirebaseAdmin();
@@ -170,13 +196,45 @@ app.post("/api/admin/invite", async (req, res) => {
   );
   await ref.set({ editorUids, members, pendingInvites }, { merge: true });
 
-  res.json({ ok: true, uid: userRecord.uid, email });
+  let setupLink;
+  try {
+    setupLink = await admin.auth().generatePasswordResetLink(email, {
+      url: continueUrl,
+      handleCodeInApp: false,
+    });
+  } catch (e) {
+    return res.status(500).json({
+      error: `No se pudo generar el enlace de invitación: ${e.message}. Revisa dominios autorizados en Firebase y APP_PUBLIC_URL.`,
+    });
+  }
+
+  try {
+    await sendInviteEmail({
+      to: email,
+      setupLink,
+      appName: process.env.APP_NAME || "Torneo StarCraft",
+    });
+  } catch (e) {
+    return res.status(502).json({
+      error: `Usuario creado pero falló el envío del correo: ${e.message}`,
+      uid: userRecord.uid,
+      email,
+    });
+  }
+
+  res.json({ ok: true, uid: userRecord.uid, email, emailSent: true });
 });
 
 app.listen(PORT, () => {
   console.log(`Torneo StarCraft: http://localhost:${PORT}`);
   console.log(`Base de datos: ${DB_PATH}`);
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.log("Invitaciones por correo: define FIREBASE_SERVICE_ACCOUNT_JSON en Render");
+    console.log("Invitaciones: define FIREBASE_SERVICE_ACCOUNT_JSON en Render");
+  }
+  if (!isEmailConfigured()) {
+    console.log("Invitaciones SMTP: define SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_FROM (SETUP-EMAIL.txt)");
+  }
+  if (!process.env.APP_PUBLIC_URL) {
+    console.log("Invitaciones: define APP_PUBLIC_URL (ej. https://tu-app.onrender.com/admin.html)");
   }
 });

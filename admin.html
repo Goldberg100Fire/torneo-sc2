@@ -842,7 +842,7 @@
   <section id="staffSection" class="staff-panel" hidden>
     <h3>EQUIPO ADMINISTRADOR</h3>
     <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-      Invita editores por correo. Recibirán un enlace para crear su contraseña (no pueden invitar a otros).
+      Invita editores por correo (envío SMTP desde el servidor). Recibirán un enlace para crear su contraseña.
     </p>
     <div class="staff-invite-row">
       <input type="email" id="inviteEmail" placeholder="correo@ejemplo.com" autocomplete="off" />
@@ -1389,59 +1389,28 @@
       const email = normalizeEmail(emailRaw);
       if (!email || !email.includes("@")) throw new Error("Correo inválido");
       if (!isSuperAdmin()) throw new Error("Solo el administrador principal puede invitar");
+      if (location.protocol === "file:") {
+        throw new Error(
+          "Las invitaciones por correo requieren abrir el admin desde la URL del servidor (Render o npm start), no como archivo local."
+        );
+      }
 
       const token = await getIdToken();
-      let serverOk = false;
-      if (token) {
-        try {
-          const res = await fetch("/api/admin/invite", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Bearer " + token,
-            },
-            body: JSON.stringify({ email, role: "editor" }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (res.ok) serverOk = true;
-          else if (res.status !== 503) throw new Error(json.error || "No se pudo invitar");
-        } catch (e) {
-          if (!String(e.message).includes("503")) throw e;
-        }
-      }
+      if (!token) throw new Error("Debes iniciar sesión");
 
-      const ref = rolesDocRef();
-      if (ref) {
-        const snap = await ref.get();
-        const data = snap.exists ? snap.data() : { superAdminUids: [], editorUids: [], members: [] };
-        const pendingInvites = data.pendingInvites || [];
-        if (!pendingInvites.some((p) => normalizeEmail(p.email) === email)) {
-          pendingInvites.push({
-            email,
-            role: "editor",
-            invitedAt: new Date().toISOString(),
-            invitedBy: firebaseAuth.currentUser.uid,
-          });
-        }
-        await ref.set({ pendingInvites }, { merge: true });
-        adminRolesDoc = { ...data, pendingInvites };
-      }
+      const continueUrl = window.location.origin + "/admin.html";
+      const res = await fetch("/api/admin/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ email, role: "editor", continueUrl }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "No se pudo invitar");
 
-      if (serverOk || firebaseAuth) {
-        try {
-          await firebaseAuth.sendPasswordResetEmail(email, {
-            url: window.location.origin + "/admin.html",
-            handleCodeInApp: false,
-          });
-        } catch (e) {
-          if (e.code === "auth/user-not-found") {
-            throw new Error(
-              "Correo pendiente. Pide al usuario que use «Crear contraseña» en la pantalla de acceso."
-            );
-          }
-          throw e;
-        }
-      }
+      await loadAdminRolesDoc();
     }
 
     function renderStaffPanel() {

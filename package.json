@@ -9,6 +9,7 @@
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
-    "firebase-admin": "^13.0.2"
+    "firebase-admin": "^13.0.2",
+    "nodemailer": "^6.10.0"
   }
 }
