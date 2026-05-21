@@ -41,9 +41,23 @@ const deleteRow = db.prepare("DELETE FROM tournament WHERE id = 1");
 
 let firebaseAdmin = null;
 
+function loadFirebaseServiceAccountRaw() {
+  const inline = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (inline) return inline;
+  const filePath = process.env.FIREBASE_SERVICE_ACCOUNT_FILE?.trim();
+  if (filePath && fs.existsSync(filePath)) {
+    return fs.readFileSync(filePath, "utf8").trim();
+  }
+  const renderSecret = "/etc/secrets/firebase-service-account.json";
+  if (fs.existsSync(renderSecret)) {
+    return fs.readFileSync(renderSecret, "utf8").trim();
+  }
+  return null;
+}
+
 async function initFirebaseAdmin() {
   if (firebaseAdmin) return firebaseAdmin;
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  const raw = loadFirebaseServiceAccountRaw();
   if (!raw) return null;
   try {
     const admin = (await import("firebase-admin")).default;
@@ -92,9 +106,14 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.static(__dirname));
 
 function firebaseEnvDiagnostics() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw || !String(raw).trim()) {
-    return { envSet: false, jsonValid: false, hint: "Falta FIREBASE_SERVICE_ACCOUNT_JSON en Render → Environment" };
+  const raw = loadFirebaseServiceAccountRaw();
+  if (!raw) {
+    return {
+      envSet: false,
+      jsonValid: false,
+      hint:
+        "Falta Firebase: FIREBASE_SERVICE_ACCOUNT_JSON en Environment, o Secret File firebase-service-account.json (ver SETUP-RENDER-FIREBASE.txt)",
+    };
   }
   try {
     const parsed = JSON.parse(raw);
