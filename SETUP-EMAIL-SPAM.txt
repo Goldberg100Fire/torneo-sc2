@@ -1,0 +1,42 @@
+================================================================================
+  Correos en SPAM — qué hacer (Torneo StarCraft + Gmail API)
+================================================================================
+
+Es normal al empezar con Gmail personal/API: Gmail entrega, pero el filtro del
+destinatario (Gmail, Outlook, ucvvirtual.edu.pe) puede marcar como spam.
+
+AHORA (rápido, cada invitado)
+-----------------------------
+1. Que abran el correo y pulsen "No es spam" / "Reportar como no spam".
+2. Añadir tu GMAIL_USER a contactos del invitado.
+3. Pedir que revisen carpeta Spam la primera vez.
+
+TÚ (remitente)
+--------------
+- Usa siempre el mismo GMAIL_USER y nombre en EMAIL_FROM.
+- No envíes muchas invitaciones seguidas a correos distintos (parece masivo).
+- El asunto ahora es más simple: "Acceso editor - Torneo StarCraft".
+
+MEJOR A MEDIANO PLAZO (menos spam)
+----------------------------------
+1. Dominio propio + Google Workspace (ej. torneo@tudominio.com)
+   → SPF/DKIM los gestiona Google; mucha mejor reputación.
+
+2. O servicio transaccional con dominio verificado (Resend, Brevo, Mailgun):
+   - Verificas DNS (SPF, DKIM, DMARC) en tu dominio
+   - EMAIL_FROM = Torneo SC2 <noreply@tudominio.com>
+
+3. Firebase sigue igual; solo cambia el envío de correo en Render.
+
+CORREOS INSTITUCIONALES (@ucvvirtual.edu.pe)
+--------------------------------------------
+Suelen filtrar más. Opciones:
+- Avisar al invitado que revise spam y marque como seguro.
+- Que IT agregue tu remitente a lista blanca si es uso interno.
+
+NO SIRVE MUCHO
+--------------
+- Cambiar solo colores del HTML (ya simplificamos el correo en código).
+- "Desactivar spam" sin que el usuario marque No es spam la primera vez.
+
+================================================================================

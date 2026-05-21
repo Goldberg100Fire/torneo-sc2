@@ -95,27 +95,27 @@ export function isEmailConfigured() {
 }
 
 function buildInviteContent({ setupLink, appName }) {
-  const subject = `Invitación — ${appName} (crear tu contraseña)`;
+  const subject = `Acceso editor - ${appName}`;
   const text = [
     `Hola,`,
     ``,
-    `Te invitaron como editor del panel de administración de ${appName}.`,
+    `Te dieron acceso como editor del panel de ${appName}.`,
     ``,
-    `Abre este enlace para crear tu contraseña e iniciar sesión:`,
+    `Para crear tu contraseña e iniciar sesion, abre este enlace:`,
     setupLink,
     ``,
-    `El enlace caduca en unas horas. Si expira, pide otra invitación al administrador principal.`,
+    `El enlace caduca en unas horas. Si expira, pide otra invitacion al administrador.`,
     ``,
-    `Si no esperabas este mensaje, ignóralo.`,
+    `Si no conoces este torneo, ignora este mensaje.`,
   ].join("\n");
 
   const html = `
-    <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;color:#1a1a1a">
-      <h2 style="color:#c9a227">${escapeHtml(appName)}</h2>
-      <p>Te invitaron como <strong>editor</strong> del panel de administración del torneo.</p>
-      <p><a href="${escapeHtml(setupLink)}" style="display:inline-block;background:#c9a227;color:#0a0a0f;padding:12px 20px;text-decoration:none;border-radius:4px;font-weight:600">Crear mi contraseña</a></p>
-      <p style="font-size:13px;color:#555">Si el botón no funciona, copia este enlace en el navegador:<br><a href="${escapeHtml(setupLink)}">${escapeHtml(setupLink)}</a></p>
-      <p style="font-size:12px;color:#888">El enlace caduca en unas horas. Si no esperabas este correo, ignóralo.</p>
+    <div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px">
+      <p>Hola,</p>
+      <p>Te dieron acceso como <strong>editor</strong> del panel de <strong>${escapeHtml(appName)}</strong>.</p>
+      <p>Para crear tu contraseña, abre este enlace:</p>
+      <p><a href="${escapeHtml(setupLink)}">${escapeHtml(setupLink)}</a></p>
+      <p style="font-size:13px;color:#555">El enlace caduca en unas horas. Si no conoces este torneo, ignora este correo.</p>
     </div>
   `.trim();
 
@@ -126,12 +126,16 @@ function encodeSubjectUtf8(subject) {
   return `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
 }
 
-function buildRawMime({ from, to, subject, text, html }) {
+function buildRawMime({ from, to, subject, text, html, replyTo }) {
   const boundary = `torneo_${Date.now()}`;
-  const mime = [
+  const headers = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${encodeSubjectUtf8(subject)}`,
+  ];
+  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
+  const mime = [
+    ...headers,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
@@ -177,7 +181,8 @@ async function getGmailClient() {
 
 async function sendViaGmailApi({ to, from, subject, text, html }) {
   const gmail = await getGmailClient();
-  const raw = buildRawMime({ from, to, subject, text, html });
+  const replyTo = gmailApiConfig()?.user || from;
+  const raw = buildRawMime({ from, to, subject, text, html, replyTo });
   try {
     await gmail.users.messages.send({
       userId: "me",
@@ -223,23 +228,23 @@ async function sendViaSmtp({ to, from, subject, text, html }) {
 }
 
 function buildPasswordSetupContent({ setupLink, appName }) {
-  const subject = `Crear contraseña — ${appName}`;
+  const subject = `Crear contraseña - ${appName}`;
   const text = [
     `Hola,`,
     ``,
-    `Solicitaste crear tu contraseña para el panel de administración de ${appName}.`,
+    `Recibimos una solicitud para crear la contraseña del panel de ${appName}.`,
     ``,
-    `Abre este enlace:`,
+    `Enlace:`,
     setupLink,
     ``,
-    `Si no fuiste tú, ignora este mensaje.`,
+    `Si no fuiste tu, ignora este mensaje.`,
   ].join("\n");
   const html = `
-    <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;color:#1a1a1a">
-      <h2 style="color:#c9a227">${escapeHtml(appName)}</h2>
-      <p>Usa este enlace para <strong>crear tu contraseña</strong> e iniciar sesión en el panel.</p>
-      <p><a href="${escapeHtml(setupLink)}" style="display:inline-block;background:#c9a227;color:#0a0a0f;padding:12px 20px;text-decoration:none;border-radius:4px;font-weight:600">Crear mi contraseña</a></p>
-      <p style="font-size:13px;color:#555"><a href="${escapeHtml(setupLink)}">${escapeHtml(setupLink)}</a></p>
+    <div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px">
+      <p>Hola,</p>
+      <p>Recibimos una solicitud para crear la contraseña del panel de <strong>${escapeHtml(appName)}</strong>.</p>
+      <p><a href="${escapeHtml(setupLink)}">${escapeHtml(setupLink)}</a></p>
+      <p style="font-size:13px;color:#555">Si no fuiste tu, ignora este correo.</p>
     </div>
   `.trim();
   return { subject, text, html };
