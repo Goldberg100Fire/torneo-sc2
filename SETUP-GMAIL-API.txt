@@ -37,27 +37,42 @@ PASO 3 — Credenciales OAuth
 1. APIs y servicios → Credenciales → Crear credenciales
 2. ID de cliente de OAuth → Tipo: Aplicación web
 3. Nombre: torneo-sc2-gmail
-4. URIs de redirección autorizados → Añadir:
+4. URIs de redirección autorizados → Añadir AMBAS:
      http://localhost:3333/oauth2callback
+     https://developers.google.com/oauthplayground
 5. Crear → copia:
      - ID de cliente        → GMAIL_CLIENT_ID
      - Secreto del cliente  → GMAIL_CLIENT_SECRET
 
 --------------------------------------------------------------------------------
-PASO 4 — Obtener refresh token (en tu PC, una sola vez)
+PASO 4A — Refresh token con OAuth Playground (recomendado)
 --------------------------------------------------------------------------------
-En PowerShell, carpeta del proyecto torneo-sc2:
+https://developers.google.com/oauthplayground/
 
+1. Engranaje (OAuth 2.0 configuration) arriba a la derecha:
+   - Marca "Use your own OAuth credentials"
+   - OAuth Client ID = tu GMAIL_CLIENT_ID
+   - OAuth Client secret = tu GMAIL_CLIENT_SECRET
+   - Close
+
+2. Step 1 — En "Input your own scopes" pega:
+     https://mail.google.com/
+
+   Clic "Authorize APIs" → elige el Gmail que ENVIARÁ invitaciones → Permitir
+
+3. Step 2 — Clic "Exchange authorization code for tokens"
+
+4. Copia el "Refresh token" (empieza con 1//0...) → Render:
+     GMAIL_REFRESH_TOKEN=...
+
+(Opcional: el script local npm run gmail:token hace lo mismo sin Playground.)
+
+--------------------------------------------------------------------------------
+PASO 4B — Refresh token con script local (alternativa)
+--------------------------------------------------------------------------------
   $env:GMAIL_CLIENT_ID="PEGA_EL_CLIENT_ID"
   $env:GMAIL_CLIENT_SECRET="PEGA_EL_CLIENT_SECRET"
-  npm install
-  node scripts/gmail-get-token.mjs
-
-- Se abre el navegador → inicia sesión con el Gmail que ENVIARÁ invitaciones
-- Acepta permiso "Enviar correo en tu nombre"
-- En la consola aparece: GMAIL_REFRESH_TOKEN=1//0xxxx...
-
-Copia ese token a Render.
+  npm run gmail:token
 
 --------------------------------------------------------------------------------
 PASO 5 — Variables en Render
@@ -68,8 +83,10 @@ Environment → Add:
   GMAIL_CLIENT_SECRET   = (del paso 3)
   GMAIL_REFRESH_TOKEN   = (del paso 4)
   GMAIL_USER            = tu@gmail.com   (el mismo Gmail del paso 4)
-  EMAIL_FROM            = Torneo SC2 <tu@gmail.com>
+  GMAIL_REDIRECT_URI    = https://developers.google.com/oauthplayground
+  (opcional) EMAIL_FROM = Torneo SC2 <tu@gmail.com>
   APP_PUBLIC_URL        = https://torneo-sc2.onrender.com/admin.html
+  FIREBASE_SERVICE_ACCOUNT_JSON = (NO la borres al cambiar Gmail)
 
 IMPORTANTE: En Render BORRA estas variables si existen (si no, /api/health dirá smtp y no enviará):
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, RESEND_API_KEY

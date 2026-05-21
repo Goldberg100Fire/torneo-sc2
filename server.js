@@ -3,7 +3,12 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getEmailMode, isEmailConfigured, sendInviteEmail } from "./email.js";
+import {
+  getEmailMode,
+  gmailEnvDiagnostics,
+  isEmailConfigured,
+  sendInviteEmail,
+} from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -111,6 +116,7 @@ function firebaseEnvDiagnostics() {
 
 app.get("/api/health", async (_req, res) => {
   const fbEnv = firebaseEnvDiagnostics();
+  const gmEnv = gmailEnvDiagnostics();
   const admin = await initFirebaseAdmin();
   res.json({
     ok: true,
@@ -121,6 +127,8 @@ app.get("/api/health", async (_req, res) => {
     firebaseHint: fbEnv.hint,
     emailConfigured: isEmailConfigured(),
     emailMode: getEmailMode(),
+    gmailEnvSet: gmEnv.envSet,
+    gmailHint: gmEnv.hint,
     appPublicUrl: process.env.APP_PUBLIC_URL || null,
   });
 });

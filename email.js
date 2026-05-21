@@ -3,15 +3,43 @@ import nodemailer from "nodemailer";
 let transporter = null;
 let gmailClientPromise = null;
 
+function trimEnv(name) {
+  const v = process.env[name];
+  return v ? String(v).trim() : "";
+}
+
 function gmailApiConfig() {
-  const clientId = process.env.GMAIL_CLIENT_ID;
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
-  const user = process.env.GMAIL_USER || process.env.SMTP_USER;
+  const clientId = trimEnv("GMAIL_CLIENT_ID");
+  const clientSecret = trimEnv("GMAIL_CLIENT_SECRET");
+  const refreshToken = trimEnv("GMAIL_REFRESH_TOKEN");
+  const user = trimEnv("GMAIL_USER") || trimEnv("SMTP_USER");
   if (!clientId || !clientSecret || !refreshToken || !user) return null;
   const from =
-    process.env.EMAIL_FROM || `Torneo StarCraft <${user.includes("@") ? user : `${user}@gmail.com`}>`;
-  return { clientId, clientSecret, refreshToken, user, from };
+    trimEnv("EMAIL_FROM") ||
+    `Torneo StarCraft <${user.includes("@") ? user : `${user}@gmail.com`}>`;
+  const redirectUri =
+    trimEnv("GMAIL_REDIRECT_URI") || "https://developers.google.com/oauthplayground";
+  return { clientId, clientSecret, refreshToken, user, from, redirectUri };
+}
+
+export function gmailEnvDiagnostics() {
+  const clientId = trimEnv("GMAIL_CLIENT_ID");
+  const clientSecret = trimEnv("GMAIL_CLIENT_SECRET");
+  const refreshToken = trimEnv("GMAIL_REFRESH_TOKEN");
+  const user = trimEnv("GMAIL_USER");
+  if (!clientId || !clientSecret || !refreshToken || !user) {
+    return {
+      envSet: false,
+      hint: "Faltan GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN o GMAIL_USER en Render",
+    };
+  }
+  if (!refreshToken.startsWith("1//")) {
+    return {
+      envSet: true,
+      hint: "GMAIL_REFRESH_TOKEN no parece válido (debe empezar con 1//). Genera uno nuevo en OAuth Playground.",
+    };
+  }
+  return { envSet: true, hint: null };
 }
 
 function resendApiConfig() {
@@ -132,10 +160,17 @@ async function getGmailClient() {
     gmailClientPromise = (async () => {
       const cfg = gmailApiConfig();
       const { google } = await import("googleapis");
-      const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret);
+      const oauth2 = new google.auth.OAuth2(
+        cfg.clientId,
+        cfg.clientSecret,
+        cfg.redirectUri
+      );
       oauth2.setCredentials({ refresh_token: cfg.refreshToken });
       return google.gmail({ version: "v1", auth: oauth2 });
-    })();
+    })().catch((e) => {
+      gmailClientPromise = null;
+      throw e;
+    });
   }
   return gmailClientPromise;
 }
@@ -150,6 +185,11 @@ async function sendViaGmailApi({ to, from, subject, text, html }) {
     });
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || String(e);
+    if (/invalid_grant|unauthorized_client/i.test(msg)) {
+      throw new Error(
+        `${msg} — Regenera GMAIL_REFRESH_TOKEN en OAuth Playground (scope https://mail.google.com/) con tus credenciales.`
+      );
+    }
     throw new Error(msg);
   }
 }
