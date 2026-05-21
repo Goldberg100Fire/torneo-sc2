@@ -11,14 +11,25 @@ navegador. Necesitas:
      de Firebase Authentication)
 
 --------------------------------------------------------------------------------
-Variables en Render (Environment) o en tu PC antes de npm start
+Variables en Render (RECOMENDADO — API, no SMTP)
+--------------------------------------------------------------------------------
+Render BLOQUEA el puerto SMTP. Usa la API de Resend (HTTPS):
+
+  RESEND_API_KEY=re_xxxxxxxx     ← API key de Resend (claves API)
+  EMAIL_FROM=Torneo SC2 <onboarding@resend.dev>
+  APP_PUBLIC_URL=https://torneo-sc2.onrender.com/admin.html
+
+Opcional: si ya tenías SMTP_PASS=re_... también funciona como API key.
+
+--------------------------------------------------------------------------------
+Variables SMTP (solo local npm start; en Render suele fallar)
 --------------------------------------------------------------------------------
 
   SMTP_HOST=smtp.resend.com
   SMTP_PORT=465
   SMTP_SECURE=true
   SMTP_USER=resend
-  SMTP_PASS=re_xxxxxxxx          ← API key de Resend
+  SMTP_PASS=re_xxxxxxxx
   EMAIL_FROM=Torneo SC2 <onboarding@resend.dev>
   APP_PUBLIC_URL=https://TU-SERVICIO.onrender.com/admin.html
 
@@ -84,7 +95,7 @@ Comprobar
 
 1. Despliega en Render con todas las variables.
 2. Abre https://TU-SERVICIO.onrender.com/api/health
-   Debe mostrar: firebaseAdmin: true, emailConfigured: true
+   Debe mostrar: firebaseAdmin: true, emailConfigured: true, emailMode: "resend-api"
 3. En admin.html (misma URL), inicia sesión como admin principal e invita.
 4. Revisa spam. El asunto es: "Invitación — Torneo StarCraft (crear tu contraseña)"
 

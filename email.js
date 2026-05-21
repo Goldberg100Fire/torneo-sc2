@@ -2,6 +2,14 @@ import nodemailer from "nodemailer";
 
 let transporter = null;
 
+function resendApiConfig() {
+  const apiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
+  const from = process.env.EMAIL_FROM;
+  if (!apiKey || !String(apiKey).startsWith("re_")) return null;
+  if (!from) return null;
+  return { apiKey, from };
+}
+
 function smtpConfig() {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
@@ -33,18 +41,18 @@ function getTransporter() {
   return { transporter, from: cfg.from };
 }
 
-export function isEmailConfigured() {
-  return !!smtpConfig();
+/** Render bloquea SMTP saliente; usar API HTTPS de Resend en producción. */
+export function getEmailMode() {
+  if (resendApiConfig()) return "resend-api";
+  if (smtpConfig()) return "smtp";
+  return null;
 }
 
-export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCraft" }) {
-  const t = getTransporter();
-  if (!t) {
-    throw new Error(
-      "Correo no configurado en el servidor. Define SMTP_HOST, SMTP_USER, SMTP_PASS y EMAIL_FROM (ver SETUP-EMAIL.txt)."
-    );
-  }
+export function isEmailConfigured() {
+  return !!getEmailMode();
+}
 
+function buildInviteContent({ setupLink, appName }) {
   const subject = `Invitación — ${appName} (crear tu contraseña)`;
   const text = [
     `Hola,`,
@@ -69,18 +77,63 @@ export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCra
     </div>
   `.trim();
 
+  return { subject, text, html };
+}
+
+async function sendViaResendApi({ to, from, apiKey, subject, text, html }) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to: [to], subject, text, html }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = body.message || body.error || res.statusText || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return body;
+}
+
+async function sendViaSmtp({ to, from, subject, text, html }) {
+  const t = getTransporter();
+  if (!t) throw new Error("SMTP no configurado");
   try {
-    await t.transporter.sendMail({
-      from: t.from,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await t.transporter.sendMail({ from, to, subject, text, html });
   } catch (e) {
     const detail = e.response || e.message || String(e);
     throw new Error(detail);
   }
+}
+
+export async function sendInviteEmail({ to, setupLink, appName = "Torneo StarCraft" }) {
+  const { subject, text, html } = buildInviteContent({ setupLink, appName });
+  const mode = getEmailMode();
+
+  if (mode === "resend-api") {
+    const cfg = resendApiConfig();
+    await sendViaResendApi({
+      to,
+      from: cfg.from,
+      apiKey: cfg.apiKey,
+      subject,
+      text,
+      html,
+    });
+    return;
+  }
+
+  if (mode === "smtp") {
+    const t = getTransporter();
+    await sendViaSmtp({ to, from: t.from, subject, text, html });
+    return;
+  }
+
+  throw new Error(
+    "Correo no configurado. En Render usa RESEND_API_KEY + EMAIL_FROM (ver SETUP-EMAIL.txt). SMTP suele estar bloqueado en Render."
+  );
 }
 
 function escapeHtml(s) {

@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { isEmailConfigured, sendInviteEmail } from "./email.js";
+import { getEmailMode, isEmailConfigured, sendInviteEmail } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -120,6 +120,7 @@ app.get("/api/health", async (_req, res) => {
     firebaseJsonValid: fbEnv.jsonValid,
     firebaseHint: fbEnv.hint,
     emailConfigured: isEmailConfigured(),
+    emailMode: getEmailMode(),
     appPublicUrl: process.env.APP_PUBLIC_URL || null,
   });
 });
@@ -181,7 +182,7 @@ app.post("/api/admin/invite", async (req, res) => {
   if (!isEmailConfigured()) {
     return res.status(503).json({
       error:
-        "Servicio de correo no configurado. Define SMTP_HOST, SMTP_USER, SMTP_PASS y EMAIL_FROM en el servidor (ver SETUP-EMAIL.txt).",
+        "Servicio de correo no configurado. En Render usa RESEND_API_KEY y EMAIL_FROM (ver SETUP-EMAIL.txt).",
     });
   }
 
@@ -267,7 +268,7 @@ app.listen(PORT, () => {
     console.log("Invitaciones: define FIREBASE_SERVICE_ACCOUNT_JSON en Render");
   }
   if (!isEmailConfigured()) {
-    console.log("Invitaciones SMTP: define SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_FROM (SETUP-EMAIL.txt)");
+    console.log("Invitaciones: define RESEND_API_KEY + EMAIL_FROM en Render (SETUP-EMAIL.txt)");
   }
   if (!process.env.APP_PUBLIC_URL) {
     console.log("Invitaciones: define APP_PUBLIC_URL (ej. https://tu-app.onrender.com/admin.html)");
