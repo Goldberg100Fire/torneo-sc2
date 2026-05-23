@@ -1151,6 +1151,7 @@
         }
       }
       refreshRoundFormatsFromState();
+      sanitizeAllMatchFeeds();
     }
 
     function clearBracketState() {
@@ -2096,17 +2097,42 @@
       return namesBySize[totalRounds] || Array.from({ length: totalRounds }, (_, i) => "Ronda " + (i + 1));
     }
 
+    /** Solo bloquea si el equipo viene de un feed y aún no hay ganador (no si ya hay teamA/B del sorteo). */
+    function feedBlocksSide(match, side) {
+      const feed = side === "A" ? match.feedA : match.feedB;
+      const directId = side === "A" ? match.teamA : match.teamB;
+      if (!feed) return false;
+      if (directId) return false;
+      return !resolveFeed(feed);
+    }
+
     function pendingFeedDetails(match) {
       const missing = [];
-      if (match.feedA && !resolveFeed(match.feedA)) {
+      if (feedBlocksSide(match, "A")) {
         const src = getMatchById(match.feedA.matchId);
         if (src) missing.push({ src, slot: match.feedA.slot });
       }
-      if (match.feedB && !resolveFeed(match.feedB)) {
+      if (feedBlocksSide(match, "B")) {
         const src = getMatchById(match.feedB.matchId);
         if (src) missing.push({ src, slot: match.feedB.slot });
       }
       return missing;
+    }
+
+    function sanitizeStaleMatchFeeds(match) {
+      if (match.feedA && match.teamA && !resolveFeed(match.feedA)) match.feedA = null;
+      if (match.feedB && match.teamB && !resolveFeed(match.feedB)) match.feedB = null;
+    }
+
+    function sanitizeAllMatchFeeds() {
+      let changed = false;
+      for (const m of getAllMatchesList()) {
+        const beforeA = m.feedA;
+        const beforeB = m.feedB;
+        sanitizeStaleMatchFeeds(m);
+        if (m.feedA !== beforeA || m.feedB !== beforeB) changed = true;
+      }
+      return changed;
     }
 
     function isPreliminaryComplete() {
@@ -3005,6 +3031,7 @@
         winnersTitle.textContent = "BRACKET WINNERS (" + state.drawInfo.targetSize + ")";
       }
 
+      if (sanitizeAllMatchFeeds()) save(true);
       autoByeAdvance();
 
       renderBracketColumn(document.getElementById("winnersBracket"), buildWinnersRounds(), {
