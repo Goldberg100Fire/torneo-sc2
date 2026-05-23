@@ -1151,6 +1151,7 @@
         }
       }
       refreshRoundFormatsFromState();
+      reconcileBracketMatches();
       sanitizeAllMatchFeeds();
     }
 
@@ -2062,7 +2063,34 @@
       return buildBracket(seededTeamIds);
     }
 
+    function forEachBracketMatch(fn) {
+      if (state.preliminary?.rounds) {
+        state.preliminary.rounds.forEach((round) => round.forEach(fn));
+      }
+      if (state.preliminary?.loserRounds) {
+        state.preliminary.loserRounds.forEach((round) => round.forEach(fn));
+      }
+      if (!state.bracket) return;
+      state.bracket.wb?.forEach((round) => round.forEach(fn));
+      state.bracket.lb?.forEach((round) => round.forEach(fn));
+      if (state.bracket.grand) fn(state.bracket.grand);
+    }
+
+    /** Una sola copia por id: el cuadro (wb/lb) manda; evita duplicados tras guardar en Firestore/JSON. */
+    function reconcileBracketMatches() {
+      if (!state.bracket) return;
+      const list = [];
+      const seen = new Set();
+      forEachBracketMatch((m) => {
+        if (!m?.id || seen.has(m.id)) return;
+        seen.add(m.id);
+        list.push(m);
+      });
+      state.bracket.matches = list;
+    }
+
     function getAllMatchesList() {
+      reconcileBracketMatches();
       const list = state.bracket ? [...state.bracket.matches] : [];
       if (state.preliminary?.rounds) {
         state.preliminary.rounds.forEach((round) => round.forEach((m) => list.push(m)));
@@ -2074,7 +2102,12 @@
     }
 
     function getMatchById(id) {
-      return getAllMatchesList().find((m) => m.id === id) || null;
+      let found = null;
+      forEachBracketMatch((m) => {
+        if (m.id === id) found = m;
+      });
+      if (found) return found;
+      return state.bracket?.matches?.find((m) => m.id === id) || null;
     }
 
     function resolveFeed(feed) {
@@ -2392,7 +2425,9 @@
     function confirmMatch(matchId, scoreA, scoreB, playedAtLocal) {
       const match = getMatchById(matchId);
       if (!match) return "Cruce no encontrado. Recarga la página.";
-      if (match.confirmed) return "Este cruce ya tiene resultado confirmado.";
+      if (match.confirmed) {
+        return "Este cruce ya tiene resultado confirmado. Si debe cambiarse, pulsa «Reabrir cruce» debajo.";
+      }
       const pending = pendingFeedDetails(match);
       if (pending.length) {
         return (
@@ -2842,6 +2877,24 @@
             nextList.map(nextMatchLabel).join(", ");
           res.appendChild(adv);
         }
+        if (canEditTournament()) {
+          const reopenBtn = document.createElement("button");
+          reopenBtn.type = "button";
+          reopenBtn.className = "btn-ghost";
+          reopenBtn.style.marginTop = "0.5rem";
+          reopenBtn.textContent = "Reabrir cruce (corregir resultado)";
+          reopenBtn.addEventListener("click", () => {
+            if (!confirm("¿Reabrir este cruce? Los cruces posteriores que dependan de él pueden quedar inconsistentes.")) return;
+            match.confirmed = false;
+            match.winner = null;
+            match.loser = null;
+            match.scoreA = null;
+            match.scoreB = null;
+            save();
+            renderBracket();
+          });
+          res.appendChild(reopenBtn);
+        }
         card.appendChild(res);
         return finishMatchCard(card, match);
       }
@@ -3031,6 +3084,7 @@
         winnersTitle.textContent = "BRACKET WINNERS (" + state.drawInfo.targetSize + ")";
       }
 
+      reconcileBracketMatches();
       if (sanitizeAllMatchFeeds()) save(true);
       autoByeAdvance();
 
