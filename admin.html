@@ -2084,6 +2084,31 @@
       return feed.slot === "winner" ? src.winner : src.loser;
     }
 
+    function wbRoundNames(totalRounds) {
+      const namesBySize = {
+        1: ["Final"],
+        2: ["Semifinal", "Final"],
+        3: ["Cuartos", "Semifinal", "Final"],
+        4: ["Octavos", "Cuartos", "Semifinal", "Final"],
+        5: ["Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
+        6: ["R32", "Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
+      };
+      return namesBySize[totalRounds] || Array.from({ length: totalRounds }, (_, i) => "Ronda " + (i + 1));
+    }
+
+    function pendingFeedDetails(match) {
+      const missing = [];
+      if (match.feedA && !resolveFeed(match.feedA)) {
+        const src = getMatchById(match.feedA.matchId);
+        if (src) missing.push({ src, slot: match.feedA.slot });
+      }
+      if (match.feedB && !resolveFeed(match.feedB)) {
+        const src = getMatchById(match.feedB.matchId);
+        if (src) missing.push({ src, slot: match.feedB.slot });
+      }
+      return missing;
+    }
+
     function isPreliminaryComplete() {
       if (!state.preliminary?.rounds?.length) return true;
       return state.preliminary.rounds.every((round) => round.every((m) => m.confirmed));
@@ -2340,7 +2365,15 @@
 
     function confirmMatch(matchId, scoreA, scoreB, playedAtLocal) {
       const match = getMatchById(matchId);
-      if (!match || match.confirmed) return;
+      if (!match) return "Cruce no encontrado. Recarga la página.";
+      if (match.confirmed) return "Este cruce ya tiene resultado confirmado.";
+      const pending = pendingFeedDetails(match);
+      if (pending.length) {
+        return (
+          "Faltan resultados anteriores: " +
+          pending.map((p) => matchShortLabel(p.src) + " (" + pathLabel(p.slot) + ")").join(", ")
+        );
+      }
       const { a, b } = resolveMatchTeams(match);
       const err = validateScore(match, scoreA, scoreB, a, b);
       if (err) return err;
@@ -2540,15 +2573,7 @@
       if (m.bracket === "preliminary-lb") return "Prelim. repechaje · Cruce " + cruce;
       if (m.bracket === "grand") return "Gran final";
       if (m.bracket === "winners" && state.bracket?.wb) {
-        const wbRounds = state.bracket.wb.length;
-        const names =
-          wbRounds <= 1
-            ? ["Final"]
-            : wbRounds === 2
-              ? ["Semifinal", "Final"]
-              : wbRounds === 3
-                ? ["Cuartos", "Semifinal", "Final"]
-                : ["Octavos", "Cuartos", "Semifinal", "Final"];
+        const names = wbRoundNames(state.bracket.wb.length);
         return "WB " + (names[m.round] || "R" + (m.round + 1)) + " · Cruce " + cruce;
       }
       if (m.bracket === "losers") return "LB R" + (m.round + 1) + " · Cruce " + cruce;
@@ -2704,7 +2729,8 @@
       ensureGrandStartScore(match, a, b);
       const need = winsNeeded(match);
       const bo = match.bestOf;
-      const pending = (match.feedA && !resolveFeed(match.feedA)) || (match.feedB && !resolveFeed(match.feedB));
+      const pendingList = pendingFeedDetails(match);
+      const pending = pendingList.length > 0;
       const aBye = a && teamById(a)?.isBye;
       const bBye = b && teamById(b)?.isBye;
       const isByeMatch = aBye || bBye;
@@ -2798,7 +2824,21 @@
         const wait = document.createElement("p");
         wait.style.color = "var(--muted)";
         wait.style.fontSize = "0.85rem";
-        wait.textContent = pending ? "Esperando cruces anteriores…" : "Esperando equipos…";
+        if (pending) {
+          wait.innerHTML =
+            "Esperando cruces anteriores:<br>" +
+            pendingList
+              .map(
+                (p) =>
+                  "· " +
+                  matchShortLabel(p.src) +
+                  " — falta " +
+                  pathLabel(p.slot).toLowerCase()
+              )
+              .join("<br>");
+        } else {
+          wait.textContent = "Esperando equipos…";
+        }
         card.appendChild(wait);
         return finishMatchCard(card, match);
       }
@@ -2879,15 +2919,8 @@
     function wbRoundLabel(ri, totalRounds, matchCount) {
       if (ri === totalRounds - 1 && matchCount === 1) return "Final";
       if (ri === totalRounds - 2 && matchCount <= 2) return "Semifinal";
-      const namesBySize = {
-        1: ["Final"],
-        2: ["Semifinal", "Final"],
-        3: ["Cuartos", "Semifinal", "Final"],
-        4: ["Octavos", "Cuartos", "Semifinal", "Final"],
-        5: ["Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
-        6: ["R32", "Dieciseisavos", "Octavos", "Cuartos", "Semifinal", "Final"],
-      };
-      return (namesBySize[totalRounds] || [])[ri] || "Ronda " + (ri + 1);
+      const names = wbRoundNames(totalRounds);
+      return names[ri] || "Ronda " + (ri + 1);
     }
 
     function renderBracketColumn(container, rounds, options) {
