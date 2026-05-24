@@ -830,12 +830,42 @@
       return (p?.teams || []).reduce((n, t) => n + (t.players?.length || 0), 0);
     }
 
+    function countConfirmedMatchesInPayload(p) {
+      if (!p) return 0;
+      let n = 0;
+      const visit = (m) => {
+        if (m?.confirmed) n++;
+      };
+      const walkRound = (round) => {
+        if (!Array.isArray(round)) return;
+        round.forEach(visit);
+      };
+      const walkRounds = (rounds) => {
+        if (!Array.isArray(rounds)) return;
+        rounds.forEach(walkRound);
+      };
+      const b = p.bracket;
+      if (b) {
+        walkRounds(b.wb);
+        walkRounds(b.lb);
+        if (b.grand) visit(b.grand);
+        if (Array.isArray(b.matches)) b.matches.forEach(visit);
+      }
+      const pre = p.preliminary;
+      if (pre) {
+        walkRounds(pre.rounds);
+        walkRounds(pre.loserRounds);
+      }
+      return n;
+    }
+
     function payloadScore(p) {
       if (!p) return -1;
       let s = 0;
       if (hasBracketData(p)) s += 1e9;
       if (p.drawn) s += 1e8;
       s += totalPlayersInPayload(p) * 1e5;
+      s += countConfirmedMatchesInPayload(p) * 1e6;
       s += Date.parse(p.savedAt || p.drawInfo?.drawnAt || 0) || 0;
       return s;
     }
@@ -897,14 +927,13 @@
         merged.drawn = cloud.drawn;
         merged.roundFormats = cloud.roundFormats || local.roundFormats;
       } else if (hasBracketData(local) && hasBracketData(cloud)) {
-        const lDraw = Date.parse(local.drawInfo?.drawnAt || 0) || 0;
-        const cDraw = Date.parse(cloud.drawInfo?.drawnAt || 0) || 0;
-        const pick = lDraw >= cDraw ? local : cloud;
+        const pick = payloadScore(local) >= payloadScore(cloud) ? local : cloud;
+        const other = pick === local ? cloud : local;
         merged.bracket = pick.bracket;
         merged.preliminary = pick.preliminary;
         merged.drawInfo = pick.drawInfo;
         merged.drawn = pick.drawn;
-        merged.roundFormats = pick.roundFormats || (lDraw >= cDraw ? cloud.roundFormats : local.roundFormats);
+        merged.roundFormats = pick.roundFormats || other.roundFormats;
       }
 
       const t = Math.max(
