@@ -744,15 +744,24 @@
   <script type="module">
     import { createTournamentLib } from "./tournament-lib.mjs";
     window.TournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
+    window.dispatchEvent(new Event("tournament-lib-ready"));
   </script>
 
   <script defer>
-    const {
-      hasBracketData,
-      payloadScore,
-      mergePayload,
-      choosePayload,
-    } = window.TournamentLib;
+    let hasBracketData;
+    let payloadScore;
+    let mergePayload;
+    let choosePayload;
+
+    function bindTournamentLib() {
+      const L = window.TournamentLib;
+      if (!L) return false;
+      hasBracketData = L.hasBracketData;
+      payloadScore = L.payloadScore;
+      mergePayload = L.mergePayload;
+      choosePayload = L.choosePayload;
+      return true;
+    }
 
     const PUBLIC_VIEW = true;
     const STORAGE_KEY = "sc2-tournament-v2";
@@ -956,6 +965,7 @@
       state.drawInfo = data.drawInfo || null;
       state.drawn = !!data.drawn;
       state.roundFormats = data.roundFormats || null;
+      state.savedAt = data.savedAt || null;
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
       if (state.bracket) {
         if (!state.bracket.size && state.bracket.wb?.length) {
@@ -1011,28 +1021,59 @@
     /** Actualiza la etiqueta de almacenamiento sin asumir última escritura OK */
     function updateStorageBadge() {
       const el = document.getElementById("dbStatus");
+      if (!el) return;
       const cfg = window.FIREBASE_SC2_CONFIG;
+      if (PUBLIC_VIEW && hasBracketData(state)) {
+        const t = state.savedAt || state.drawInfo?.drawnAt;
+        el.textContent = t
+          ? "Cuadro publicado · " + new Date(t).toLocaleString("es")
+          : "Cuadro publicado (en vivo)";
+        el.className = "db-status online";
+        el.title = "Datos del torneo cargados";
+        return;
+      }
+      if (PUBLIC_VIEW && state.teams?.length) {
+        el.textContent = "Equipos cargados · cuadro pendiente";
+        el.className = "db-status online";
+        return;
+      }
       if (cfg?.enabled === true && firebaseInitError) {
         el.textContent = "Firebase: error";
         el.title = firebaseInitError;
         el.className = "db-status offline";
         return;
       }
-      if (isFileMode && !firebaseReady) {
-        el.textContent = "Este PC (archivo local)";
-        el.title =
-          "Guardado en el navegador. Exporta JSON como copia. Firestore puede requerir publicar la web (Firebase Hosting).";
+      if (isFileMode && !firebaseReady && !sqliteListening) {
+        el.textContent = "Abre desde torneo-sc2.onrender.com";
+        el.title = "Desde archivo local no se puede leer el servidor del torneo.";
         el.className = "db-status offline";
         return;
       }
       const parts = [];
       if (firebaseReady) parts.push("Firestore");
-      if (sqliteListening) parts.push("SQLite");
-      parts.push("navegador");
-      el.textContent = parts.join(" · ");
-      el.title = "Estado del guardado";
+      if (sqliteListening) parts.push("servidor");
+      el.textContent = parts.length ? parts.join(" · ") : "Sin conexión al torneo";
+      el.title = "Estado de conexión";
       const anyRemote = firebaseReady || sqliteListening;
       el.className = "db-status" + (anyRemote ? " online" : " offline");
+    }
+
+    /** Carga torneo desde API (rápido, sin esperar Firebase). */
+    async function loadFromServerApi() {
+      if (isFileMode) return false;
+      try {
+        const res = await fetch(API);
+        if (!res.ok) return false;
+        const json = await res.json();
+        if (!json.data) return false;
+        const local = readLocalPayload();
+        const merged = mergePayload(local, json.data);
+        if (merged) applyMergedPayload(merged);
+        return !!merged;
+      } catch (e) {
+        console.warn("API torneo:", e);
+        return false;
+      }
     }
 
     async function pingSqliteBackend() {
@@ -2271,7 +2312,7 @@
         empty.hidden = false;
         if (PUBLIC_VIEW) {
           empty.querySelector(".empty-bracket").innerHTML =
-            "El cuadro aún no está publicado. El administrador debe sortear en el panel admin (con sesión iniciada) para guardarlo en la nube.";
+            "El cuadro aún no está publicado aquí. Si el admin ya sorteó, abre <strong>https://torneo-sc2.onrender.com/index.html</strong> (no el archivo del PC), pulsa F5 o borra datos del sitio en este navegador.";
         }
         return;
       }
@@ -2405,18 +2446,10 @@
       const local = readLocalPayload();
       const merged = mergePayload(local, cloud);
 
-      const loaded = applyMergedPayload(merged);
-      if (loaded) {
-        renderAll();
-        if (hasBracketData(merged)) {
-          const el = document.getElementById("dbStatus");
-          el.textContent = "Cuadro publicado (en vivo)";
-          el.className = "db-status online";
-        }
-      }
-
+      if (merged) applyMergedPayload(merged);
+      renderAll();
       updateStorageBadge();
-      return loaded && hasBracketData(merged);
+      return hasBracketData(state);
     }
 
     async function pollServerTournament() {
@@ -2428,15 +2461,13 @@
         if (!json.data) return;
         const local = readLocalPayload();
         const merged = mergePayload(local, json.data);
-        if (!merged || !hasBracketData(merged)) return;
-        if (state.drawn && state.bracket && hasBracketData(local)) {
-          if (payloadScore(merged) <= payloadScore(local)) return;
-        }
+        if (!merged) return;
+        const localHasBracket = hasBracketData(local);
+        if (localHasBracket && payloadScore(merged) <= payloadScore(local)) return;
+        if (!hasBracketData(merged) && !state.teams?.length) return;
         applyMergedPayload(merged);
         renderAll();
-        const el = document.getElementById("dbStatus");
-        el.textContent = "Cuadro publicado (servidor)";
-        el.className = "db-status online";
+        updateStorageBadge();
       } catch (e) {
         /* ignore */
       }
@@ -2472,23 +2503,28 @@
         if (PUBLIC_VIEW) {
           loadFromLocalStorage();
           renderAll();
+          updateStorageBadge();
+          loadFromServerApi()
+            .then(() => {
+              renderAll();
+              updateStorageBadge();
+            })
+            .catch(() => {});
           loadFirebaseSdk()
             .then(async () => {
               await syncFromCloud();
               if (firebaseReady) subscribePublicFirestore();
               if (!isFileMode) {
+                pollServerTournament();
                 setInterval(pollServerTournament, 12000);
-              }
-              if (!firebaseReady && !sqliteListening) {
-                const el = document.getElementById("dbStatus");
-                el.textContent = firebaseInitError ? "Firebase: error" : "Sin conexión al torneo";
-                if (firebaseInitError) el.title = firebaseInitError;
               }
             })
             .catch((e) => {
               const el = document.getElementById("dbStatus");
-              el.textContent = "Sin conexión";
-              el.title = e?.message || String(e);
+              if (el && !hasBracketData(state)) {
+                el.textContent = firebaseInitError || "Sin conexión en vivo";
+                el.title = e?.message || String(e);
+              }
               pollServerTournament();
               if (!isFileMode) setInterval(pollServerTournament, 12000);
             });
@@ -2507,7 +2543,22 @@
       }
     }
 
-    initApp();
+    async function bootPublicPage() {
+      for (let i = 0; i < 200 && !window.TournamentLib; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!bindTournamentLib()) {
+        const el = document.getElementById("dbStatus");
+        if (el) {
+          el.textContent = "Error al cargar la app — recarga (F5)";
+          el.className = "db-status offline";
+        }
+        return;
+      }
+      initApp();
+    }
+
+    bootPublicPage();
   </script>
 </body>
 </html>
