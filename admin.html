@@ -1174,6 +1174,35 @@
       return String(email || "").trim().toLowerCase();
     }
 
+    function authErrorMessage(e) {
+      const code = e?.code || "";
+      const map = {
+        "auth/invalid-credential": "Correo o contraseña incorrectos. Si es tu primera vez, usa el botón de crear contraseña.",
+        "auth/wrong-password": "Contraseña incorrecta.",
+        "auth/user-not-found": "No hay cuenta con este correo. Usa «Primera vez — crear mi contraseña» o pide invitación al admin.",
+        "auth/invalid-email": "Correo no válido.",
+        "auth/too-many-requests": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+        "auth/user-disabled": "Esta cuenta está deshabilitada en Firebase.",
+        "auth/network-request-failed": "Sin conexión o Firebase bloqueado. Revisa internet y extensiones del navegador.",
+      };
+      return map[code] || e?.message || "Error al iniciar sesión";
+    }
+
+    function loginPermissionHint(userEmail) {
+      const boots = (window.FIREBASE_SC2_CONFIG?.bootstrapSuperAdminEmails || []).map(normalizeEmail);
+      const email = normalizeEmail(userEmail);
+      if (boots.length && !boots.includes(email)) {
+        return (
+          " Tu correo (" +
+          email +
+          ") no está en la lista de admin principal (" +
+          boots.join(", ") +
+          "). Pide una invitación de editor o añade tu correo en firebase-config.js."
+        );
+      }
+      return " Si eres admin principal, publica firestore.rules en Firebase Console (ver SETUP-ACCESO-ADMIN.txt).";
+    }
+
     function isSuperAdmin() {
       return currentAdminRole === "super";
     }
@@ -1251,7 +1280,12 @@
         } catch (e) {
           console.warn("No se pudo escribir admin_roles en Firestore:", e);
         }
-        return "super";
+        await loadAdminRolesDoc();
+        if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
+        console.warn(
+          "Bootstrap admin: inicia sesión OK pero Firestore no registró el uid. Publica firestore.rules."
+        );
+        return null;
       }
 
       const pending = adminRolesDoc?.pendingInvites || [];
@@ -3301,7 +3335,7 @@
             document.getElementById("adminPassword").value
           );
         } catch (e) {
-          errEl.textContent = e.message || "Error al iniciar sesión";
+          errEl.textContent = authErrorMessage(e);
         }
       });
 
@@ -3324,7 +3358,7 @@
               if (!currentAdminRole) {
                 await firebaseAuth.signOut();
                 errEl.textContent =
-                  "Tu cuenta no tiene permiso. Pide una invitación al administrador principal.";
+                  "Tu cuenta no tiene permiso en este torneo." + loginPermissionHint(user.email);
                 login.hidden = false;
                 app.hidden = true;
                 return;

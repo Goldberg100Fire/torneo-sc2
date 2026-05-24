@@ -1,0 +1,66 @@
+================================================================================
+  NO PUEDO ENTRAR AL ADMIN — causas y soluciones
+================================================================================
+
+El login usa Firebase Authentication (correo + contraseña). Después comprueba
+si tu cuenta es admin principal o editor en Firestore (admin_roles).
+
+--------------------------------------------------------------------------------
+1. MENSAJE: "Correo o contraseña incorrectos" / auth/invalid-credential
+--------------------------------------------------------------------------------
+- Revisa mayúsculas y que no haya espacios al copiar la contraseña.
+- Si nunca creaste contraseña: pulsa "Primera vez — crear mi contraseña"
+  (con tu correo escrito arriba) y usa el enlace del email.
+- Si te invitaron: abre el enlace del correo de invitación, no inventes clave.
+
+--------------------------------------------------------------------------------
+2. MENSAJE: "No existe cuenta con este correo"
+--------------------------------------------------------------------------------
+- El usuario debe existir en Firebase:
+  Firebase Console → Authentication → Users → Add user
+  O recibir invitación del admin principal.
+- El correo debe ser EXACTAMENTE el de la invitación (mismo dominio).
+
+--------------------------------------------------------------------------------
+3. MENSAJE: "Tu cuenta no tiene permiso"
+--------------------------------------------------------------------------------
+Entraste a Firebase Auth pero NO estás en la lista de admins/editores.
+
+Admin principal (solo estos correos en bootstrapSuperAdminEmails):
+  - geylquimichen@ucvvirtual.edu.pe   (ver firebase-config.js)
+
+Si tu correo es otro:
+  - Pide al admin principal que te invite desde el panel (correo de invitación).
+  - O añade tu correo en firebase-config.js → bootstrapSuperAdminEmails
+    (en minúsculas), sube a GitHub y publica reglas Firestore actualizadas.
+
+--------------------------------------------------------------------------------
+4. Abres admin como archivo local (file://)
+--------------------------------------------------------------------------------
+- Usa: https://torneo-sc2.onrender.com/admin.html
+- Invitaciones y "crear contraseña" NO funcionan desde file://
+
+--------------------------------------------------------------------------------
+5. Dominio no autorizado en Firebase
+--------------------------------------------------------------------------------
+Firebase Console → Authentication → Settings → Authorized domains
+Debe incluir: torneo-sc2.onrender.com (y localhost si pruebas en local)
+
+--------------------------------------------------------------------------------
+6. Reglas Firestore desactualizadas
+--------------------------------------------------------------------------------
+Si el admin principal no puede guardar tras entrar:
+- Firebase Console → Firestore → Reglas
+- Pega el contenido de firestore.rules de este repo → Publicar
+- La lista bootstrapSuperEmails en firestore.rules debe coincidir con
+  bootstrapSuperAdminEmails en firebase-config.js
+
+--------------------------------------------------------------------------------
+7. Comprobar en el navegador (F12 → Consola)
+--------------------------------------------------------------------------------
+Tras "Iniciar sesión", busca:
+- permission-denied → reglas Firestore o uid no en admin_roles
+- Firebase Auth no disponible → sin internet o SDK bloqueado
+- auth/network-request-failed → firewall o bloqueador
+
+================================================================================

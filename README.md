@@ -38,7 +38,8 @@ Los datos se guardan en `localStorage`. Con sesión admin/editor también en **F
 
 Gmail API (Render) o Resend. Ver `SETUP-GMAIL-API.txt`, `SETUP-EMAIL.txt`, `SETUP-EMAIL-SPAM.txt`.
 
-Firebase: dominios autorizados y reglas en `SETUP-FIREBASE.txt`.
+Firebase: dominios autorizados y reglas en `SETUP-FIREBASE.txt`.  
+**No puedo entrar al admin:** `SETUP-ACCESO-ADMIN.txt`.
 
 ## Tests
 

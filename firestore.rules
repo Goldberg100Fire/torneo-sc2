@@ -14,6 +14,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    /** Debe coincidir con bootstrapSuperAdminEmails en firebase-config.js */
+    function bootstrapSuperEmails() {
+      return ['geylquimichen@ucvvirtual.edu.pe'];
+    }
+
+    function isBootstrapSuperEmail() {
+      return isSignedIn() && request.auth.token.email in bootstrapSuperEmails();
+    }
+
     function isSuperAdmin() {
       return isSignedIn() && rolesExist() &&
         request.auth.uid in adminRoles().data.superAdminUids;
@@ -28,6 +37,15 @@ service cloud.firestore {
       return isSuperAdmin() || isEditor();
     }
 
+    /** Primer acceso: correo bootstrap se añade a superAdminUids */
+    function isBootstrapSuperSelfRegister() {
+      return isSignedIn()
+        && isBootstrapSuperEmail()
+        && request.auth.uid in request.resource.data.superAdminUids
+        && (!rolesExist()
+          || !(request.auth.uid in adminRoles().data.get('superAdminUids', [])));
+    }
+
     match /torneos_sc2/principal {
       allow read: if true;
       allow write: if canWriteTournament();
@@ -35,11 +53,14 @@ service cloud.firestore {
 
     match /torneos_sc2/admin_roles {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSuperAdmin() ||
-        (isSignedIn() &&
-          request.auth.uid in request.resource.data.editorUids &&
-          !(request.auth.uid in resource.data.get('editorUids', [])));
+      allow create: if isSignedIn()
+        && (isBootstrapSuperSelfRegister()
+          || request.auth.uid in request.resource.data.get('superAdminUids', []));
+      allow update: if isSuperAdmin()
+        || isBootstrapSuperSelfRegister()
+        || (isSignedIn()
+          && request.auth.uid in request.resource.data.editorUids
+          && !(request.auth.uid in resource.data.get('editorUids', [])));
     }
 
     match /torneos_sc2/{other} {
