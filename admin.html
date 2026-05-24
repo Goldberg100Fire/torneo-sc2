@@ -922,15 +922,24 @@
   <script type="module">
     import { createTournamentLib } from "./tournament-lib.mjs";
     window.TournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
+    window.dispatchEvent(new Event("tournament-lib-ready"));
   </script>
 
   <script defer>
-    const {
-      hasBracketData,
-      payloadScore,
-      mergePayload,
-      choosePayload,
-    } = window.TournamentLib;
+    let hasBracketData;
+    let payloadScore;
+    let mergePayload;
+    let choosePayload;
+
+    function bindTournamentLib() {
+      const L = window.TournamentLib;
+      if (!L) return false;
+      hasBracketData = L.hasBracketData;
+      payloadScore = L.payloadScore;
+      mergePayload = L.mergePayload;
+      choosePayload = L.choosePayload;
+      return true;
+    }
 
     const STORAGE_KEY = "sc2-tournament-v2";
     const MAX_PLAYERS_PER_TEAM = 6;
@@ -1282,8 +1291,15 @@
         }
         await loadAdminRolesDoc();
         if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
+
+        const viaServer = await serverBootstrapRoles();
+        if (viaServer) {
+          await loadAdminRolesDoc();
+          if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
+        }
+
         console.warn(
-          "Bootstrap admin: inicia sesión OK pero Firestore no registró el uid. Publica firestore.rules."
+          "Bootstrap admin: contraseña OK pero no se pudo registrar en admin_roles."
         );
         return null;
       }
@@ -1328,6 +1344,31 @@
     async function getIdToken() {
       if (!firebaseAuth?.currentUser) return null;
       return firebaseAuth.currentUser.getIdToken();
+    }
+
+    /** Registra admin principal vía servidor (Admin SDK) si Firestore cliente falla. */
+    async function serverBootstrapRoles() {
+      if (location.protocol === "file:") return false;
+      const token = await getIdToken();
+      if (!token) return false;
+      try {
+        const res = await fetch("/api/admin/bootstrap-roles", {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+          },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.warn("bootstrap-roles:", json.error || res.status);
+          return false;
+        }
+        return !!json.ok;
+      } catch (e) {
+        console.warn("bootstrap-roles:", e);
+        return false;
+      }
     }
 
     async function apiAuthHeaders(extra = {}) {
@@ -3323,20 +3364,42 @@
     }
 
     function setupAuth() {
-      document.getElementById("btnLogin").addEventListener("click", async () => {
+      async function doLogin() {
         const errEl = document.getElementById("loginError");
+        const btn = document.getElementById("btnLogin");
         errEl.textContent = "";
+        errEl.style.color = "";
+        const prev = btn?.textContent;
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Entrando…";
+        }
         try {
           await loadFirebaseSdk();
           initFirebaseFromConfig();
           if (!firebaseAuth) throw new Error("Firebase Auth no disponible");
-          await firebaseAuth.signInWithEmailAndPassword(
-            document.getElementById("adminEmail").value.trim(),
-            document.getElementById("adminPassword").value
-          );
+          const email = document.getElementById("adminEmail").value.trim();
+          const password = document.getElementById("adminPassword").value;
+          if (!email || !password) throw new Error("Escribe correo y contraseña");
+          await firebaseAuth.signInWithEmailAndPassword(email, password);
         } catch (e) {
           errEl.textContent = authErrorMessage(e);
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || "Iniciar sesión";
+          }
         }
+      }
+
+      document.getElementById("btnLogin").addEventListener("click", () => {
+        doLogin().catch((e) => {
+          document.getElementById("loginError").textContent = e.message || String(e);
+        });
+      });
+
+      document.getElementById("adminPassword")?.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") doLogin();
       });
 
       document.getElementById("btnLogout").addEventListener("click", () => {
@@ -3357,8 +3420,13 @@
               currentAdminRole = await resolveAdminRole(user);
               if (!currentAdminRole) {
                 await firebaseAuth.signOut();
-                errEl.textContent =
-                  "Tu cuenta no tiene permiso en este torneo." + loginPermissionHint(user.email);
+                let msg = "Tu cuenta no tiene permiso en este torneo." + loginPermissionHint(user.email);
+                if (isBootstrapSuperEmail(user) && location.protocol !== "file:") {
+                  msg +=
+                    " Abre desde https://torneo-sc2.onrender.com/admin.html (no archivo local). Si acabas de desplegar, espera 2 min y recarga.";
+                }
+                errEl.textContent = msg;
+                errEl.style.color = "";
                 login.hidden = false;
                 app.hidden = true;
                 return;
@@ -3467,7 +3535,22 @@
       });
     }
 
-    setupAuth();
+    async function bootAdminPage() {
+      const errEl = document.getElementById("loginError");
+      for (let i = 0; i < 200 && !window.TournamentLib; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!bindTournamentLib()) {
+        if (errEl) {
+          errEl.textContent =
+            "No se cargó el módulo del torneo. Recarga con F5 o abre https://torneo-sc2.onrender.com/admin.html";
+        }
+        return;
+      }
+      setupAuth();
+    }
+
+    bootAdminPage();
   </script>
 </body>
 </html>

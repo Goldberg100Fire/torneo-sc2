@@ -16,7 +16,7 @@ service cloud.firestore {
 
     /** Debe coincidir con bootstrapSuperAdminEmails en firebase-config.js */
     function bootstrapSuperEmails() {
-      return ['geylquimichen@ucvvirtual.edu.pe'];
+      return ['geylquimichen@ucvvirtual.edu.pe', 'geylquimichen@gmail.com'];
     }
 
     function isBootstrapSuperEmail() {

@@ -100,6 +100,17 @@ async function verifyCanWriteTournament(decoded) {
   );
 }
 
+/** Correos que pueden registrarse como admin principal (servidor, sin depender de reglas cliente). */
+function getBootstrapSuperEmails() {
+  const raw =
+    process.env.BOOTSTRAP_SUPER_ADMIN_EMAILS ||
+    "geylquimichen@ucvvirtual.edu.pe,geylquimichen@gmail.com";
+  return raw
+    .split(",")
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean);
+}
+
 async function verifyAuthHeader(req) {
   const admin = await initFirebaseAdmin();
   if (!admin) return { error: "Firebase Admin no configurado en el servidor", status: 503 };
@@ -285,6 +296,59 @@ app.post("/api/auth/password-setup-email", async (req, res) => {
     email,
     message: `Correo enviado a ${email}. Revisa bandeja y spam.`,
   });
+});
+
+/**
+ * Registra el uid del usuario en admin_roles (Admin SDK).
+ * Útil cuando Firestore rules del cliente bloquean el primer alta del admin.
+ */
+app.post("/api/admin/bootstrap-roles", async (req, res) => {
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+
+  const email = normalizeEmail(auth.decoded.email);
+  const allowed = getBootstrapSuperEmails();
+  if (!allowed.includes(email)) {
+    return res.status(403).json({
+      error: `El correo ${email} no está en la lista de admin principal del servidor.`,
+      allowedEmails: allowed,
+    });
+  }
+
+  const admin = await initFirebaseAdmin();
+  if (!admin) {
+    return res.status(503).json({
+      error: "Firebase Admin no configurado en Render (FIREBASE_SERVICE_ACCOUNT_JSON).",
+    });
+  }
+
+  const uid = auth.decoded.uid;
+  const ref = admin.firestore().collection("torneos_sc2").doc("admin_roles");
+  const snap = await ref.get();
+  const data = snap.exists
+    ? snap.data()
+    : { superAdminUids: [], editorUids: [], members: [] };
+
+  if ((data.superAdminUids || []).includes(uid)) {
+    return res.json({ ok: true, uid, email, alreadyRegistered: true });
+  }
+
+  const next = {
+    superAdminUids: [...new Set([...(data.superAdminUids || []), uid])],
+    editorUids: data.editorUids || [],
+    members: [
+      ...(data.members || []).filter((m) => m.uid !== uid),
+      {
+        uid,
+        email,
+        role: "super",
+        addedAt: new Date().toISOString(),
+        source: "server-bootstrap",
+      },
+    ],
+  };
+  await ref.set(next, { merge: true });
+  res.json({ ok: true, uid, email, message: "Admin principal registrado en Firestore." });
 });
 
 /** Invitar editor: crea usuario en Auth y envía correo con enlace para contraseña */

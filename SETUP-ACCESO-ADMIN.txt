@@ -26,8 +26,12 @@ si tu cuenta es admin principal o editor en Firestore (admin_roles).
 --------------------------------------------------------------------------------
 Entraste a Firebase Auth pero NO estás en la lista de admins/editores.
 
-Admin principal (solo estos correos en bootstrapSuperAdminEmails):
-  - geylquimichen@ucvvirtual.edu.pe   (ver firebase-config.js)
+Admin principal (bootstrapSuperAdminEmails en firebase-config.js):
+  - geylquimichen@ucvvirtual.edu.pe
+  - geylquimichen@gmail.com
+
+IMPORTANTE: En Firebase tienes DOS cuentas distintas (gmail y ucvvirtual).
+La contraseña de una NO sirve para la otra. Usa el mismo correo que en Authentication.
 
 Si tu correo es otro:
   - Pide al admin principal que te invite desde el panel (correo de invitación).
