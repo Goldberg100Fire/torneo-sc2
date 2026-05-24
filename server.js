@@ -77,14 +77,27 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-async function verifySuperAdmin(decoded) {
+async function getAdminRolesData() {
   const admin = await initFirebaseAdmin();
-  if (!admin) return false;
-  const dbFs = admin.firestore();
-  const snap = await dbFs.collection("torneos_sc2").doc("admin_roles").get();
-  if (!snap.exists) return false;
-  const data = snap.data();
+  if (!admin) return null;
+  const snap = await admin.firestore().collection("torneos_sc2").doc("admin_roles").get();
+  if (!snap.exists) return null;
+  return snap.data();
+}
+
+async function verifySuperAdmin(decoded) {
+  const data = await getAdminRolesData();
+  if (!data) return false;
   return (data.superAdminUids || []).includes(decoded.uid);
+}
+
+async function verifyCanWriteTournament(decoded) {
+  const data = await getAdminRolesData();
+  if (!data) return false;
+  const uid = decoded.uid;
+  return (
+    (data.superAdminUids || []).includes(uid) || (data.editorUids || []).includes(uid)
+  );
 }
 
 async function verifyAuthHeader(req) {
@@ -164,7 +177,16 @@ app.get("/api/tournament", (_req, res) => {
   });
 });
 
-app.put("/api/tournament", (req, res) => {
+app.put("/api/tournament", async (req, res) => {
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+  const canWrite = await verifyCanWriteTournament(auth.decoded);
+  if (!canWrite) {
+    return res.status(403).json({
+      error: "No tienes permiso para guardar en el servidor. Inicia sesión como admin o editor.",
+    });
+  }
+
   const payload = req.body;
   if (!payload || typeof payload !== "object") {
     return res.status(400).json({ error: "Cuerpo inválido" });
@@ -177,7 +199,15 @@ app.put("/api/tournament", (req, res) => {
   res.json({ ok: true, updatedAt });
 });
 
-app.delete("/api/tournament", (_req, res) => {
+app.delete("/api/tournament", async (req, res) => {
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+  const isSuper = await verifySuperAdmin(auth.decoded);
+  if (!isSuper) {
+    return res.status(403).json({
+      error: "Solo el administrador principal puede borrar la copia del servidor.",
+    });
+  }
   deleteRow.run();
   res.json({ ok: true });
 });

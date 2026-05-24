@@ -26,18 +26,24 @@ PARTE C — Reglas de Firestore (obligatorio)
 11. Sustituye por el archivo firestore.rules de esta carpeta (lectura pública, escritura solo admin).
 12. Clic en "Publicar".
 
-PARTE C2 — Usuario administrador
---------------------------------
-13. Firebase → Authentication → Comenzar → Correo/contraseña.
-14. Agregar usuario (correo + contraseña) para entrar en admin.html.
+PARTE C2 — Dominios autorizados (producción en Render)
+------------------------------------------------------
+13. Firebase → Authentication → Settings → Authorized domains.
+14. Añade: torneo-sc2.onrender.com (y tu dominio custom si usas uno).
+15. Para pruebas locales con npm: localhost.
+
+PARTE C3 — Usuario administrador
+---------------------------------
+16. Firebase → Authentication → Comenzar → Correo/contraseña.
+17. Agregar usuario (correo + contraseña) para entrar en admin.html.
 
 PARTE D — Registrar la app web y copiar la configuración
 --------------------------------------------------------
-13. Icono de engranaje > "Configuración del proyecto".
-14. Baja a "Tus apps" > clic en el icono "</>" (Web).
-15. Apodo: torneo-web > "Registrar app".
-16. Copia el objeto firebaseConfig que muestra (apiKey, projectId, etc.).
-17. En esta carpeta:
+18. Icono de engranaje > "Configuración del proyecto".
+19. Baja a "Tus apps" > clic en el icono "</>" (Web).
+20. Apodo: torneo-web > "Registrar app".
+21. Copia el objeto firebaseConfig que muestra (apiKey, projectId, etc.).
+22. En esta carpeta:
     - Copia firebase-config.example.js → firebase-config.local.js
     - Pega tus valores en firebaseConfig
     - Pon enabled: true

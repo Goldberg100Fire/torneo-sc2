@@ -1,0 +1,42 @@
+================================================================================
+  CHECKLIST — DÍA DEL TORNEO (Torneo StarCraft)
+================================================================================
+
+ANTES DE EMPEZAR (30 min)
+-------------------------
+[ ] Abrir https://torneo-sc2.onrender.com/api/health
+    - firebaseAdmin: true
+    - emailConfigured: true
+    - appPublicUrl correcto
+
+[ ] Entrar en admin.html con cuenta super admin o editor
+[ ] Confirmar toast al guardar: "navegador + Firestore + servidor"
+    (si solo dice "navegador", no hay sesión → nadie más verá cambios)
+
+[ ] Exportar JSON de respaldo (botón Exportar JSON en admin)
+
+[ ] Probar index.html en otro navegador o móvil (vista pública)
+[ ] Firebase Console → Authentication → Settings → Authorized domains:
+    - torneo-sc2.onrender.com
+    - localhost (solo si pruebas en local)
+
+DURANTE EL EVENTO
+-----------------
+[ ] Solo editores de confianza en admin.html
+[ ] Compartir SOLO el enlace público: .../index.html
+[ ] Tras cada bloque de resultados: revisar index.html en otro dispositivo
+[ ] Si un PC muestra datos viejos: botón "Sincronizar desde nube" (admin)
+    o F5 en index / modo incógnito
+
+SI ALGO FALLA
+-------------
+[ ] /api/health con firebaseAdmin: false → revisar FIREBASE_SERVICE_ACCOUNT_JSON
+[ ] Correos no llegan → revisar spam; SETUP-GMAIL-API.txt
+[ ] Restaurar: Importar JSON en admin (con sesión admin)
+
+DESPUÉS DEL TORNEO
+------------------
+[ ] Exportar JSON final
+[ ] Opcional: copia en Firestore ya queda en torneos_sc2/principal
+
+================================================================================
