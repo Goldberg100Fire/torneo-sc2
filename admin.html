@@ -1384,6 +1384,16 @@
       return headers;
     }
 
+    function payloadSavedTime(payload) {
+      return Date.parse(payload?.savedAt || payload?.drawInfo?.drawnAt || 0) || 0;
+    }
+
+    function isStaleTournamentWrite(incoming, current) {
+      const incomingTime = payloadSavedTime(incoming);
+      const currentTime = payloadSavedTime(current);
+      return !!(incomingTime && currentTime && incomingTime < currentTime);
+    }
+
     async function inviteEditorByEmail(emailRaw) {
       const email = normalizeEmail(emailRaw);
       if (!email || !email.includes("@")) throw new Error("Correo inválido");
@@ -1475,13 +1485,22 @@
       try {
         const ref = firestoreDb.collection(col).doc(doc);
         await withTimeout(
-          ref.set(
-            {
-              payload,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          ),
+          firestoreDb.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            if (snap.exists) {
+              const d = snap.data();
+              const current = d.payload != null ? d.payload : d.data;
+              if (isStaleTournamentWrite(payload, current)) return;
+            }
+            tx.set(
+              ref,
+              {
+                payload,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }),
           8000,
           "Firestore no respondió al guardar"
         );

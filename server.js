@@ -67,6 +67,12 @@ function writeSqliteTournamentPayload(payload, updatedAt = new Date().toISOStrin
   return updatedAt;
 }
 
+function isStaleTournamentWrite(incoming, current) {
+  const incomingTime = tournamentLib.payloadTime(incoming);
+  const currentTime = tournamentLib.payloadTime(current);
+  return !!(incomingTime && currentTime && incomingTime < currentTime);
+}
+
 async function readFirestoreTournamentPayload() {
   const admin = await initFirebaseAdmin();
   if (!admin) return null;
@@ -94,17 +100,24 @@ async function writeFirestoreTournamentPayload(payload) {
   const admin = await initFirebaseAdmin();
   if (!admin) return false;
   try {
-    await admin
-      .firestore()
-      .collection(FIRESTORE_COLLECTION)
-      .doc(FIRESTORE_DOCUMENT_ID)
-      .set(
+    const firestore = admin.firestore();
+    const ref = firestore.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOCUMENT_ID);
+    await firestore.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (snap.exists) {
+        const doc = snap.data();
+        const current = doc.payload != null ? doc.payload : doc.data;
+        if (isStaleTournamentWrite(payload, current)) return;
+      }
+      tx.set(
+        ref,
         {
           payload,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
+    });
     return true;
   } catch (e) {
     console.warn("Firestore torneo escritura:", e.message);
@@ -291,6 +304,16 @@ app.put("/api/tournament", async (req, res) => {
   const payload = req.body;
   if (!payload || typeof payload !== "object") {
     return res.status(400).json({ error: "Cuerpo inválido" });
+  }
+  const sqlite = readSqliteTournamentPayload();
+  const firestore = await readFirestoreTournamentPayload();
+  const current = firestore && sqlite
+    ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
+    : (firestore?.data || sqlite?.data);
+  if (isStaleTournamentWrite(payload, current)) {
+    const updatedAt =
+      current?.savedAt || firestore?.updatedAt || sqlite?.updatedAt || new Date().toISOString();
+    return res.json({ ok: true, stale: true, updatedAt, firestoreOk: true });
   }
   const updatedAt = new Date().toISOString();
   writeSqliteTournamentPayload(payload, updatedAt);
