@@ -10,11 +10,15 @@ import {
   sendInviteEmail,
   sendPasswordSetupEmail,
 } from "./email.js";
+import { createTournamentLib } from "./tournament-lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, "data");
 const DB_PATH = path.join(DATA_DIR, "tournament.db");
+const FIRESTORE_COLLECTION = "torneos_sc2";
+const FIRESTORE_DOCUMENT_ID = "principal";
+const tournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -40,6 +44,73 @@ const upsertRow = db.prepare(`
 const deleteRow = db.prepare("DELETE FROM tournament WHERE id = 1");
 
 let firebaseAdmin = null;
+
+function readSqliteTournamentPayload() {
+  const row = selectRow.get();
+  if (!row) return null;
+  try {
+    return {
+      data: JSON.parse(row.data),
+      updatedAt: row.updated_at,
+    };
+  } catch (e) {
+    console.warn("SQLite torneo corrupto:", e.message);
+    return null;
+  }
+}
+
+function writeSqliteTournamentPayload(payload, updatedAt = new Date().toISOString()) {
+  upsertRow.run({
+    data: JSON.stringify(payload),
+    updated_at: updatedAt,
+  });
+  return updatedAt;
+}
+
+async function readFirestoreTournamentPayload() {
+  const admin = await initFirebaseAdmin();
+  if (!admin) return null;
+  try {
+    const snap = await admin
+      .firestore()
+      .collection(FIRESTORE_COLLECTION)
+      .doc(FIRESTORE_DOCUMENT_ID)
+      .get();
+    if (!snap.exists) return null;
+    const doc = snap.data();
+    const payload = doc.payload != null ? doc.payload : doc.data;
+    if (!payload || typeof payload !== "object") return null;
+    return {
+      data: payload,
+      updatedAt: doc.updatedAt?.toDate?.()?.toISOString?.() || payload.savedAt || null,
+    };
+  } catch (e) {
+    console.warn("Firestore torneo lectura:", e.message);
+    return null;
+  }
+}
+
+async function writeFirestoreTournamentPayload(payload) {
+  const admin = await initFirebaseAdmin();
+  if (!admin) return false;
+  try {
+    await admin
+      .firestore()
+      .collection(FIRESTORE_COLLECTION)
+      .doc(FIRESTORE_DOCUMENT_ID)
+      .set(
+        {
+          payload,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    return true;
+  } catch (e) {
+    console.warn("Firestore torneo escritura:", e.message);
+    return false;
+  }
+}
 
 function loadFirebaseServiceAccountRaw() {
   const inline = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
@@ -177,14 +248,33 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.get("/api/tournament", (_req, res) => {
-  const row = selectRow.get();
-  if (!row) {
-    return res.json({ data: null, updatedAt: null });
+app.get("/api/tournament", async (_req, res) => {
+  const sqlite = readSqliteTournamentPayload();
+  const firestore = await readFirestoreTournamentPayload();
+
+  if (!sqlite && !firestore) {
+    return res.json({ data: null, updatedAt: null, source: "empty" });
   }
+
+  const data = firestore && sqlite
+    ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
+    : (firestore?.data || sqlite?.data);
+  const updatedAt =
+    data?.savedAt || firestore?.updatedAt || sqlite?.updatedAt || new Date().toISOString();
+
+  // Si Render perdió/recreó SQLite al hibernar, lo rehidrata desde Firestore.
+  if (data && (!sqlite || tournamentLib.payloadScore(data) > tournamentLib.payloadScore(sqlite.data))) {
+    writeSqliteTournamentPayload(data, updatedAt);
+  }
+  // Si por alguna caída previa solo SQLite tenía lo más nuevo, repara Firestore.
+  if (data && (!firestore || tournamentLib.payloadScore(data) > tournamentLib.payloadScore(firestore.data))) {
+    await writeFirestoreTournamentPayload(data);
+  }
+
   res.json({
-    data: JSON.parse(row.data),
-    updatedAt: row.updated_at,
+    data,
+    updatedAt,
+    source: firestore ? (sqlite ? "merged" : "firestore") : "sqlite",
   });
 });
 
@@ -203,11 +293,9 @@ app.put("/api/tournament", async (req, res) => {
     return res.status(400).json({ error: "Cuerpo inválido" });
   }
   const updatedAt = new Date().toISOString();
-  upsertRow.run({
-    data: JSON.stringify(payload),
-    updated_at: updatedAt,
-  });
-  res.json({ ok: true, updatedAt });
+  writeSqliteTournamentPayload(payload, updatedAt);
+  const firestoreOk = await writeFirestoreTournamentPayload(payload);
+  res.json({ ok: true, updatedAt, firestoreOk });
 });
 
 app.delete("/api/tournament", async (req, res) => {
@@ -220,6 +308,14 @@ app.delete("/api/tournament", async (req, res) => {
     });
   }
   deleteRow.run();
+  const admin = await initFirebaseAdmin();
+  if (admin) {
+    try {
+      await admin.firestore().collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOCUMENT_ID).delete();
+    } catch (e) {
+      console.warn("Firestore torneo borrar:", e.message);
+    }
+  }
   res.json({ ok: true });
 });
 
