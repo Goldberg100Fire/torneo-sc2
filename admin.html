@@ -3225,7 +3225,9 @@
         }
       }
 
-      if (fromFirestore && fromServer) return mergePayload(fromServer, fromFirestore) || fromFirestore;
+      if (fromFirestore && fromServer) {
+        return mergePayload(fromServer, fromFirestore, { prefer: "cloud" }) || fromFirestore;
+      }
       return fromFirestore || fromServer;
     }
 
@@ -3262,7 +3264,7 @@
 
       const local = readLocalPayload();
       const cloud = await fetchCloudPayload();
-      const merged = mergePayload(local, cloud);
+      const merged = mergePayload(local, cloud, { prefer: "cloud" });
       if (merged) {
         applyPayload(merged);
         const payload = getPayload();

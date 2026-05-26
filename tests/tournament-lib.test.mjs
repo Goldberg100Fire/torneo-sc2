@@ -72,6 +72,37 @@ test("mergePayload does not prefer stale local when draw dates are equal", () =>
   assert.equal(merged.bracket.matches[0].confirmed, true);
 });
 
+test("mergePayload uses newer remote teams instead of resurrecting stale local players", () => {
+  const local = basePayload({
+    savedAt: "2026-05-01T10:00:00.000Z",
+    teams: [{ id: "t1", name: "Clan viejo", players: ["Jugador viejo"] }],
+  });
+  const cloud = basePayload({
+    savedAt: "2026-05-01T11:00:00.000Z",
+    teams: [{ id: "t1", name: "Clan nuevo", players: ["Jugador actual"] }],
+  });
+
+  const merged = mergePayload(local, cloud, { prefer: "cloud" });
+
+  assert.deepEqual(merged.teams, cloud.teams);
+});
+
+test("mergePayload prefers remote teams on equal timestamps when requested", () => {
+  const savedAt = "2026-05-01T11:00:00.000Z";
+  const local = basePayload({
+    savedAt,
+    teams: [{ id: "t1", name: "Clan viejo", players: ["Jugador viejo"] }],
+  });
+  const cloud = basePayload({
+    savedAt,
+    teams: [{ id: "t1", name: "Clan nuevo", players: ["Jugador actual"] }],
+  });
+
+  const merged = mergePayload(local, cloud, { prefer: "cloud" });
+
+  assert.equal(merged.teams[0].players[0], "Jugador actual");
+});
+
 test("feedBlocksSide ignores stale feed when direct team is set", () => {
   const match = {
     teamA: "t1",

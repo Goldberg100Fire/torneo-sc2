@@ -57,6 +57,28 @@ export function createTournamentLib(options = {}) {
     return s;
   }
 
+  function payloadTime(p) {
+    return Date.parse(p?.savedAt || p?.drawInfo?.drawnAt || 0) || 0;
+  }
+
+  function pickPayload(local, cloud, options = {}) {
+    const prefer = options.prefer === "cloud" ? "cloud" : "local";
+    const lTime = payloadTime(local);
+    const cTime = payloadTime(cloud);
+    if (lTime > cTime) return local;
+    if (cTime > lTime) return cloud;
+
+    const lScore = payloadScore(local);
+    const cScore = payloadScore(cloud);
+    if (lScore > cScore) return local;
+    if (cScore > lScore) return cloud;
+    return prefer === "cloud" ? cloud : local;
+  }
+
+  function cloneTeams(teams) {
+    return (teams || []).map((t) => ({ ...t, players: [...(t.players || [])] }));
+  }
+
   function mergeTeamPlayers(localPlayers, cloudPlayers) {
     const a = Array.isArray(localPlayers) ? localPlayers : [];
     const b = Array.isArray(cloudPlayers) ? cloudPlayers : [];
@@ -90,15 +112,22 @@ export function createTournamentLib(options = {}) {
   }
 
   /** Combina local + nube sin perder cuadro ni jugadores extra */
-  function mergePayload(local, cloud) {
+  function mergePayload(local, cloud, options = {}) {
     if (!local && !cloud) return null;
     if (!local) return cloud;
     if (!cloud) return local;
 
-    const base = payloadScore(local) >= payloadScore(cloud) ? local : cloud;
+    const base = pickPayload(local, cloud, options);
+    const teamPick = pickPayload(local, cloud, options);
+    const teamOther = teamPick === local ? cloud : local;
+    const sameTeamMoment = payloadTime(local) === payloadTime(cloud);
     const merged = {
       ...base,
-      teams: mergeTeams(local.teams, cloud.teams),
+      // Si una fuente es más nueva, sus equipos/jugadores mandan. Mezclar siempre
+      // reintroducía jugadores viejos desde localStorage tras hibernación del sitio.
+      teams: sameTeamMoment && options.prefer !== "cloud"
+        ? mergeTeams(teamPick.teams, teamOther.teams)
+        : cloneTeams(teamPick.teams),
       teamIdCounter: Math.max(local.teamIdCounter || 0, cloud.teamIdCounter || 0),
     };
 
@@ -115,7 +144,7 @@ export function createTournamentLib(options = {}) {
       merged.drawn = cloud.drawn;
       merged.roundFormats = cloud.roundFormats || local.roundFormats;
     } else if (hasBracketData(local) && hasBracketData(cloud)) {
-      const pick = payloadScore(local) >= payloadScore(cloud) ? local : cloud;
+      const pick = pickPayload(local, cloud, options);
       const other = pick === local ? cloud : local;
       merged.bracket = pick.bracket;
       merged.preliminary = pick.preliminary;
@@ -150,6 +179,7 @@ export function createTournamentLib(options = {}) {
     totalPlayersInPayload,
     countConfirmedMatchesInPayload,
     payloadScore,
+    payloadTime,
     mergeTeamPlayers,
     mergeTeams,
     mergePayload,
