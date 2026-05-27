@@ -236,11 +236,11 @@ export function findOrphanPrelimLbEntries(bracket) {
   return lb0.slice(std).filter((m) => !matchHasWinnerDestination(bracket, m.id));
 }
 
-function lbHasConfirmedBeyondR0(bracket) {
-  return (bracket.lb || []).slice(1).some((round) => round?.some((m) => m.confirmed));
+export function lbHasAnyConfirmed(bracket) {
+  return (bracket.lb || []).some((round) => round?.some((m) => m.confirmed));
 }
 
-/** Añade solo el cruce LB R1 faltante sin borrar rondas ya jugadas. */
+/** Añade solo cruces nuevos; no modifica partidos existentes (confirmados o no). */
 function repairOrphanPrelimMinimal(bracket, mkId, orphans) {
   let changed = false;
   if (!bracket.lb[1]) bracket.lb[1] = [];
@@ -251,10 +251,6 @@ function repairOrphanPrelimMinimal(bracket, mkId, orphans) {
   }
 
   for (const entry of orphans) {
-    if (entry.feedA && !entry.feedB && !entry.teamB) {
-      entry.teamB = `bye-${entry.id}`;
-      changed = true;
-    }
     if (matchHasWinnerDestination(bracket, entry.id)) continue;
 
     const match = createMatch(mkId(), "losers", 1, bracket.lb[1].length);
@@ -272,28 +268,33 @@ function repairOrphanPrelimMinimal(bracket, mkId, orphans) {
   return changed;
 }
 
+/**
+ * Repara lb-pre-entry sin destino.
+ * Si hay cruces LB confirmados: solo añade el enlace faltante (nunca borra ni edita partidos).
+ */
 export function repairOrphanPrelimLbEntries(bracket, mkId) {
   const orphans = findOrphanPrelimLbEntries(bracket);
-  if (!orphans.length) return false;
+  if (!orphans.length) return { changed: false, preservedConfirmed: false };
 
   let seq = bracket.matches.length;
   const nextId = () => mkId(seq++);
+  const hasConfirmed = lbHasAnyConfirmed(bracket);
   let changed = false;
 
-  for (const entry of orphans) {
-    if (entry.feedA && !entry.feedB && !entry.teamB) {
-      entry.teamB = `bye-${entry.id}`;
-      changed = true;
+  if (!hasConfirmed) {
+    for (const entry of orphans) {
+      if (entry.confirmed) continue;
+      if (entry.feedA && !entry.feedB && !entry.teamB) {
+        entry.teamB = `bye-${entry.id}`;
+        changed = true;
+      }
     }
+    if (rebuildLbFromDrop(bracket, nextId)) changed = true;
+    return { changed, preservedConfirmed: false };
   }
 
-  if (lbHasConfirmedBeyondR0(bracket)) {
-    if (repairOrphanPrelimMinimal(bracket, nextId, orphans)) changed = true;
-    return changed;
-  }
-
-  if (rebuildLbFromDrop(bracket, nextId)) changed = true;
-  return changed;
+  if (repairOrphanPrelimMinimal(bracket, nextId, orphans)) changed = true;
+  return { changed, preservedConfirmed: true };
 }
 
 /** Todos los cruces de repechaje (salvo gran final) deben tener al menos un feed de salida. */

@@ -1089,16 +1089,18 @@
       sanitizeAllMatchFeeds();
       if (state.bracket && window.BracketEngine) {
         let fixSeq = state.bracket.matches?.length || 0;
-        const repaired = window.BracketEngine.repairOrphanPrelimLbEntries(
+        const repair = window.BracketEngine.repairOrphanPrelimLbEntries(
           state.bracket,
           () => `m-fix-${fixSeq++}`
         );
-        if (repaired) {
+        if (repair?.changed) {
           reconcileBracketMatches();
-          autoByeAdvance();
+          if (!repair.preservedConfirmed) autoByeAdvance();
           queueMicrotask(() =>
             showToast(
-              "Repechaje corregido: un cruce del repechaje no tenía siguiente ronda. Revisa el cuadro y guarda."
+              repair.preservedConfirmed
+                ? "Se añadió el siguiente cruce del repechaje sin modificar partidos ya confirmados. Revisa y guarda."
+                : "Repechaje corregido: un cruce no tenía siguiente ronda. Revisa el cuadro y guarda."
             )
           );
         }
