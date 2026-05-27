@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDoubleElimBracket,
+  buildLb0,
   feed,
+  mergePrelimSoloIntoLb0,
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   validateLbWinnerDestinations,
@@ -57,6 +59,26 @@ test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () =
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
 });
 
+test("merge prelim: 5 cruces LB R1 pasan a 4 (prelim en cruce no confirmado)", () => {
+  const wb = makeWb16();
+  let seq = 0;
+  const mk = () => `m-${seq++}`;
+  const { lb0 } = buildLb0(wb, mk);
+  const solo = createMatch(mk(), "losers", 0, 4);
+  solo.feedA = { matchId: "pre-0", slot: "loser" };
+  lb0.push(solo);
+  const bracket = { wb, lb: [lb0], matches: [...lb0, solo], grand: null };
+
+  const merged = mergePrelimSoloIntoLb0(bracket, mk);
+
+  assert.equal(merged.changed, true);
+  assert.equal(bracket.lb[0].length, 4);
+  assert.ok(!bracket.lb[0].some((m) => m.id === solo.id));
+  const donor = bracket.lb[0][3];
+  assert.equal(donor.feedB?.matchId, "pre-0");
+  assert.ok(bracket.lb[1]?.length >= 1);
+});
+
 test("con LB confirmados: no borra ni altera partidos ya jugados", () => {
   let seq = 0;
   const mk = () => `m-${seq++}`;
@@ -84,9 +106,11 @@ test("con LB confirmados: no borra ni altera partidos ya jugados", () => {
   assert.equal(bracket.lb[1][0].id, confirmedId);
   assert.equal(bracket.lb[1][0].scoreB, confirmedScoreB);
   assert.equal(bracket.lb[1][0].confirmed, true);
+  assert.equal(bracket.lb[0].length, 4);
+  assert.ok(!bracket.lb[0].some((m) => m.id === prelim.id));
   assert.ok(
-    bracket.matches.some(
-      (m) => m.feedA?.matchId === prelim.id && m.feedA?.slot === "winner"
+    bracket.lb[0].some(
+      (m) => !m.confirmed && (m.feedB?.matchId === "pre-0" || m.feedA?.matchId === "pre-0")
     )
   );
 });
