@@ -286,9 +286,42 @@ export function restoreLb0IfPrelimMerged(bracket) {
   return changed;
 }
 
+function findLokitoBridgeMatch(bracket, host, prelimFeed) {
+  if (!host || !prelimFeed) return null;
+  return (
+    bracket.matches?.find(
+      (m) =>
+        m.bracket === "losers" &&
+        m.round === 1 &&
+        m.feedA?.matchId === host.id &&
+        m.feedA?.slot === "winner" &&
+        m.feedB?.matchId === prelimFeed.matchId &&
+        m.id !== bracket.lb?.[1]?.[host.index]?.id
+    ) || null
+  );
+}
+
+/** Restaura perdedor WB en LB R2 si Lokito ocupó su hueco por error. */
+function restoreLb1WbDropsIfPrelimStoleSlot(bracket, prelimFeed) {
+  const wb1 = bracket.wb?.[1];
+  if (!wb1?.length || !prelimFeed) return false;
+  let changed = false;
+  for (let i = 0; i < wb1.length; i++) {
+    const drop = bracket.lb?.[1]?.[i];
+    if (!drop || drop.confirmed) continue;
+    if (drop.feedB?.matchId === prelimFeed.matchId) {
+      drop.feedB = feed(wb1[i], "loser");
+      drop.teamB = null;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
- * Los 4 cruces de LB R1 no se tocan. Lokito (prelim) espera en LB R2 y juega contra
- * el ganador de uno de esos cruces (por defecto el cruce 4).
+ * LB R1: 4 cruces intactos.
+ * Puente LB R2: ganador(cruce host) vs Lokito.
+ * Cruce LB R2 host: ganador(puente) vs perdedor WB (bajada Winners conservada).
  */
 export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
   restoreLb0IfPrelimMerged(bracket);
@@ -302,7 +335,10 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
   const hostIdx =
     hostLb0Index < 0 ? std - 1 : Math.min(hostLb0Index, std - 1);
   const host = bracket.lb[0][hostIdx];
-  if (!host) return { changed: false, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+  const wbDrop = bracket.wb?.[1]?.[hostIdx];
+  if (!host || !wbDrop) return { changed: false, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+
+  let changed = restoreLb1WbDropsIfPrelimStoleSlot(bracket, prelimFeed);
 
   const solo = findPrelimSoloLb0(bracket);
   if (solo) {
@@ -311,6 +347,7 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
     bracket.lb[0].forEach((m, i) => {
       m.index = i;
     });
+    changed = true;
   }
 
   if (!bracket.lb[1]) bracket.lb[1] = [];
@@ -318,43 +355,43 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
   let seq = bracket.matches.length;
   const nextId = () => mkId(seq++);
 
-  let target = bracket.lb[1].find(
-    (m) => m.feedA?.matchId === host.id && m.feedA?.slot === "winner"
-  );
-
-  if (!target && bracket.lb[1][hostIdx] && !bracket.lb[1][hostIdx].confirmed) {
-    target = bracket.lb[1][hostIdx];
+  let bridge = findLokitoBridgeMatch(bracket, host, prelimFeed);
+  if (!bridge) {
+    bridge = createMatch(`lb-lokito-bridge-${hostIdx}`, "losers", 1, bracket.lb[1].length);
+    bracket.lb[1].push(bridge);
+    bracket.matches.push(bridge);
+    changed = true;
+  }
+  if (!bridge.confirmed) {
+    bridge.feedA = feed(host, "winner");
+    bridge.feedB = prelimFeed;
+    changed = true;
   }
 
-  if (!target) {
-    target = createMatch(nextId(), "losers", 1, bracket.lb[1].length);
-    target.feedA = feed(host, "winner");
-    target.feedB = prelimFeed;
-    bracket.lb[1].push(target);
-    bracket.matches.push(target);
-    return { changed: true, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+  let drop = bracket.lb[1][hostIdx];
+  if (!drop) {
+    drop = createMatch(nextId(), "losers", 1, hostIdx);
+    drop.index = hostIdx;
+    while (bracket.lb[1].length < hostIdx) bracket.lb[1].push(null);
+    if (bracket.lb[1].length === hostIdx) bracket.lb[1].push(drop);
+    else bracket.lb[1][hostIdx] = drop;
+    bracket.matches.push(drop);
+    changed = true;
   }
 
-  if (target.confirmed) {
-    const open = bracket.lb[1].find((m) => !m.confirmed);
-    if (open) target = open;
-    else {
-      target = createMatch(nextId(), "losers", 1, bracket.lb[1].length);
-      target.feedA = feed(host, "winner");
-      target.feedB = prelimFeed;
-      bracket.lb[1].push(target);
-      bracket.matches.push(target);
-      return { changed: true, preservedConfirmed: true };
+  if (!drop.confirmed) {
+    const wantA = feed(bridge, "winner");
+    const wantB = feed(wbDrop, "loser");
+    if (drop.feedA?.matchId !== wantA.matchId || drop.feedB?.matchId !== wantB.matchId) {
+      drop.feedA = wantA;
+      drop.feedB = wantB;
+      drop.teamA = null;
+      drop.teamB = null;
+      changed = true;
     }
   }
 
-  if (!target.confirmed) {
-    target.feedA = feed(host, "winner");
-    target.feedB = prelimFeed;
-    return { changed: true, preservedConfirmed: lbHasAnyConfirmed(bracket) };
-  }
-
-  return { changed: false, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+  return { changed, preservedConfirmed: lbHasAnyConfirmed(bracket) };
 }
 
 export function lbHasAnyConfirmed(bracket) {
