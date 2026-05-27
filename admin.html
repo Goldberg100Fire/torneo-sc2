@@ -921,7 +921,9 @@
   <script src="firebase-config.local.js"></script>
   <script type="module">
     import { createTournamentLib } from "./tournament-lib.mjs";
+    import * as BracketEngine from "./bracket-engine.mjs";
     window.TournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
+    window.BracketEngine = BracketEngine;
     window.dispatchEvent(new Event("tournament-lib-ready"));
   </script>
 
@@ -1085,6 +1087,22 @@
       refreshRoundFormatsFromState();
       reconcileBracketMatches();
       sanitizeAllMatchFeeds();
+      if (state.bracket && window.BracketEngine) {
+        let fixSeq = state.bracket.matches?.length || 0;
+        const repaired = window.BracketEngine.repairOrphanPrelimLbEntries(
+          state.bracket,
+          () => `m-fix-${fixSeq++}`
+        );
+        if (repaired) {
+          reconcileBracketMatches();
+          autoByeAdvance();
+          queueMicrotask(() =>
+            showToast(
+              "Repechaje corregido: un cruce del repechaje no tenía siguiente ronda. Revisa el cuadro y guarda."
+            )
+          );
+        }
+      }
     }
 
     function clearBracketState() {
@@ -1945,105 +1963,14 @@
 
     /** Doble eliminación (4 / 8 / 16 equipos, potencia de 2) */
     function buildBracket(seededTeamIds) {
-      const n = seededTeamIds.length;
-      const matches = [];
       let seq = 0;
-      const mkId = () => `m-${seq++}`;
-      const wbRounds = Math.log2(n);
-      const wb = [];
+      return window.BracketEngine.buildDoubleElimBracket(seededTeamIds, () => `m-${seq++}`);
+    }
 
-      for (let r = 0; r < wbRounds; r++) {
-        wb[r] = [];
-        const count = n / Math.pow(2, r + 1);
-        for (let m = 0; m < count; m++) {
-          const match = makeMatch(mkId, "winners", r, m);
-          matches.push(match);
-          wb[r].push(match);
-        }
-      }
-
-      for (let m = 0; m < wb[0].length; m++) {
-        wb[0][m].teamA = seededTeamIds[m * 2];
-        wb[0][m].teamB = seededTeamIds[m * 2 + 1];
-      }
-
-      for (let r = 1; r < wbRounds; r++) {
-        for (let m = 0; m < wb[r].length; m++) {
-          wb[r][m].feedA = feed(wb[r - 1][m * 2], "winner");
-          wb[r][m].feedB = feed(wb[r - 1][m * 2 + 1], "winner");
-        }
-      }
-
-      const lb = [];
-      lb[0] = [];
-      for (let m = 0; m < wb[0].length / 2; m++) {
-        const match = makeMatch(mkId, "losers", 0, m);
-        match.feedA = feed(wb[0][m * 2], "loser");
-        match.feedB = feed(wb[0][m * 2 + 1], "loser");
-        matches.push(match);
-        lb[0].push(match);
-      }
-
-      let lbR = 1;
-      let wbDrop = 1;
-
-      while (lbR < 20) {
-        const prev = lb[lbR - 1];
-        if (!prev?.length) break;
-
-        if (wbDrop < wbRounds) {
-          lb[lbR] = [];
-          const wbRound = wb[wbDrop];
-          for (let i = 0; i < wbRound.length; i++) {
-            const match = makeMatch(mkId, "losers", lbR, i);
-            match.feedA = feed(prev[i], "winner");
-            match.feedB = feed(wbRound[i], "loser");
-            matches.push(match);
-            lb[lbR].push(match);
-          }
-          lbR++;
-          wbDrop++;
-
-          if (lb[lbR - 1].length > 1) {
-            lb[lbR] = [];
-            const prev2 = lb[lbR - 1];
-            for (let i = 0; i < prev2.length / 2; i++) {
-              const match = makeMatch(mkId, "losers", lbR, i);
-              match.feedA = feed(prev2[i * 2], "winner");
-              match.feedB = feed(prev2[i * 2 + 1], "winner");
-              matches.push(match);
-              lb[lbR].push(match);
-            }
-            lbR++;
-          }
-        } else {
-          break;
-        }
-      }
-
-      const wbFinal = wb[wbRounds - 1][0];
-      const lastLbRound = lb[lbR - 1];
-      if (!lastLbRound?.length) throw new Error("Cuadro de repechaje inválido");
-      const lastLb = lastLbRound[0];
-      const feedsWbFinalLoser =
-        lastLb.feedA?.matchId === wbFinal.id ||
-        lastLb.feedB?.matchId === wbFinal.id;
-
-      let lbChamp = lastLb;
-      if (!feedsWbFinalLoser) {
-        lbChamp = makeMatch(mkId, "losers", lbR, 0);
-        lbChamp.feedA = feed(lastLb, "winner");
-        lbChamp.feedB = feed(wbFinal, "loser");
-        matches.push(lbChamp);
-        lb[lbR] = [lbChamp];
-      }
-
-      const grand = makeMatch(mkId, "grand", 0, 0);
-      grand.feedA = feed(wbFinal, "winner");
-      grand.feedB = feed(lbChamp, "winner");
-      matches.push(grand);
-
-      return { matches, wb, lb: lb.filter((r) => r?.length), grand, size: n };
+    function rebuildLbAfterPrelimWire(bracket) {
+      if (!window.BracketEngine || !bracket?.lb?.[0]?.length) return;
+      let seq = bracket.matches.length;
+      window.BracketEngine.rebuildLbFromDrop(bracket, () => `m-${seq++}`);
     }
 
     function buildBracketSimple(seededTeamIds) {
@@ -2253,6 +2180,7 @@
       const mkId = () => `lb-pre-entry-${seq++}`;
       const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
       entry.feedA = feed(prelimMatch, "loser");
+      entry.teamB = `bye-${entry.id}`;
       bracket.lb[0].push(entry);
       bracket.matches.push(entry);
     }
@@ -2264,6 +2192,7 @@
       const mkId = () => `lb-pre-entry-${seq++}`;
       const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
       entry.feedA = feed(finalPrelimLbMatch, "winner");
+      entry.teamB = `bye-${entry.id}`;
       bracket.lb[0].push(entry);
       bracket.matches.push(entry);
     }
@@ -2347,9 +2276,13 @@
 
       if (winnerRound.length === 1) {
         wireSinglePrelimLoser(bracket, winnerRound[0]);
+        rebuildLbAfterPrelimWire(bracket);
       } else if (loserRounds.length) {
         const last = loserRounds[loserRounds.length - 1];
-        if (last[0]) wirePrelimLbChampionToBracket(bracket, last[0]);
+        if (last[0]) {
+          wirePrelimLbChampionToBracket(bracket, last[0]);
+          rebuildLbAfterPrelimWire(bracket);
+        }
       }
 
       drawInfo.mode = "preliminary";

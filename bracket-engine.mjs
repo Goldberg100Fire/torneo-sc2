@@ -1,0 +1,313 @@
+/**
+ * Generación y reparación del cuadro de repechaje (doble eliminación).
+ * Usado en admin y en tests.
+ */
+
+export function feed(match, slot) {
+  return { matchId: match.id, slot };
+}
+
+export function createMatch(id, bracket, round, index) {
+  return {
+    id,
+    bracket,
+    round,
+    index,
+    teamA: null,
+    teamB: null,
+    scoreA: null,
+    scoreB: null,
+    winner: null,
+    loser: null,
+    confirmed: false,
+    feedA: null,
+    feedB: null,
+    bestOf: 5,
+    wbAdvantage: false,
+    playedAt: null,
+    scheduledAt: null,
+  };
+}
+
+function buildLb0(wb, mkId) {
+  const lb0 = [];
+  const matches = [];
+  for (let m = 0; m < wb[0].length / 2; m++) {
+    const match = createMatch(mkId(), "losers", 0, m);
+    match.feedA = feed(wb[0][m * 2], "loser");
+    match.feedB = feed(wb[0][m * 2 + 1], "loser");
+    matches.push(match);
+    lb0.push(match);
+  }
+  return { lb0, matches };
+}
+
+/**
+ * A partir de lb[0] ya definido, genera lb[1..] y devuelve cruces nuevos.
+ */
+export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId) {
+  const matches = [];
+  const wbRounds = wb.length;
+  let lbR = startLbR;
+  let wbDrop = startWbDrop;
+
+  while (lbR < 20) {
+    const prev = lb[lbR - 1];
+    if (!prev?.length) break;
+
+    if (wbDrop < wbRounds) {
+      lb[lbR] = [];
+      const wbRound = wb[wbDrop];
+      let wi = 0;
+      for (let pi = 0; pi < prev.length; ) {
+        const match = createMatch(mkId(), "losers", lbR, lb[lbR].length);
+        match.feedA = feed(prev[pi++], "winner");
+        if (wi < wbRound.length) {
+          match.feedB = feed(wbRound[wi++], "loser");
+        } else if (pi < prev.length) {
+          match.feedB = feed(prev[pi++], "winner");
+        } else {
+          match.teamB = `bye-${match.id}`;
+        }
+        matches.push(match);
+        lb[lbR].push(match);
+      }
+      lbR++;
+      wbDrop++;
+
+      const prev2 = lb[lbR - 1];
+      if (prev2.length > 1) {
+        lb[lbR] = [];
+        const pairCount = Math.floor(prev2.length / 2);
+        for (let i = 0; i < pairCount; i++) {
+          const match = createMatch(mkId(), "losers", lbR, i);
+          match.feedA = feed(prev2[i * 2], "winner");
+          match.feedB = feed(prev2[i * 2 + 1], "winner");
+          matches.push(match);
+          lb[lbR].push(match);
+        }
+        if (prev2.length % 2 === 1) {
+          const carry = createMatch(mkId(), "losers", lbR, lb[lbR].length);
+          carry.feedA = feed(prev2[prev2.length - 1], "winner");
+          matches.push(carry);
+          lb[lbR].push(carry);
+        }
+        lbR++;
+      }
+    } else {
+      break;
+    }
+  }
+
+  return { matches, lbR };
+}
+
+/** Rondas LB completas desde cero (potencia de 2, sin prelim extra en lb[0]). */
+export function buildLbRounds(wb, mkId) {
+  const lb = [];
+  const lb0Built = buildLb0(wb, mkId);
+  lb[0] = lb0Built.lb0;
+  const ext = extendLbRoundsFrom(wb, lb, 1, 1, mkId);
+  return {
+    lb: lb.filter((r) => r?.length),
+    matches: [...lb0Built.matches, ...ext.matches],
+    lbR: ext.lbR,
+  };
+}
+
+export function attachLbFinalAndGrand(wb, lb, lbR, mkId) {
+  const matches = [];
+  const wbFinal = wb[wb.length - 1][0];
+  const lastLbRound = lb[lb.length - 1];
+  if (!lastLbRound?.length) throw new Error("Cuadro de repechaje inválido");
+
+  let lastLb = lastLbRound[0];
+  const feedsWbFinalLoser =
+    lastLb.feedA?.matchId === wbFinal.id || lastLb.feedB?.matchId === wbFinal.id;
+
+  if (!feedsWbFinalLoser) {
+    lastLb = createMatch(mkId(), "losers", lbR, 0);
+    lastLb.feedA = feed(lb[lb.length - 1][0], "winner");
+    lastLb.feedB = feed(wbFinal, "loser");
+    matches.push(lastLb);
+    lb.push([lastLb]);
+  }
+
+  const grand = createMatch(mkId(), "grand", 0, 0);
+  grand.feedA = feed(wbFinal, "winner");
+  grand.feedB = feed(lastLb, "winner");
+  matches.push(grand);
+
+  return { grand, matches };
+}
+
+export function buildDoubleElimBracket(seededTeamIds, mkId) {
+  const n = seededTeamIds.length;
+  const matches = [];
+  let seq = 0;
+  const nextId = () => mkId(seq++);
+  const wbRounds = Math.log2(n);
+  const wb = [];
+
+  for (let r = 0; r < wbRounds; r++) {
+    wb[r] = [];
+    const count = n / Math.pow(2, r + 1);
+    for (let m = 0; m < count; m++) {
+      const match = createMatch(nextId(), "winners", r, m);
+      matches.push(match);
+      wb[r].push(match);
+    }
+  }
+
+  for (let m = 0; m < wb[0].length; m++) {
+    wb[0][m].teamA = seededTeamIds[m * 2];
+    wb[0][m].teamB = seededTeamIds[m * 2 + 1];
+  }
+
+  for (let r = 1; r < wbRounds; r++) {
+    for (let m = 0; m < wb[r].length; m++) {
+      wb[r][m].feedA = feed(wb[r - 1][m * 2], "winner");
+      wb[r][m].feedB = feed(wb[r - 1][m * 2 + 1], "winner");
+    }
+  }
+
+  const lbBuilt = buildLbRounds(wb, nextId);
+  const lb = lbBuilt.lb;
+  matches.push(...lbBuilt.matches);
+
+  const tail = attachLbFinalAndGrand(wb, lb, lbBuilt.lbR, nextId);
+  matches.push(...tail.matches);
+
+  return { matches, wb, lb, grand: tail.grand, size: n };
+}
+
+function collectLbMatchIds(lb, fromRound) {
+  const ids = new Set();
+  for (let r = fromRound; r < lb.length; r++) {
+    for (const m of lb[r] || []) ids.add(m.id);
+  }
+  return ids;
+}
+
+/**
+ * Reconstruye lb[1] en adelante y la gran final según lb[0] real
+ * (p. ej. tras añadir lb-pre-entry por preliminares).
+ */
+export function rebuildLbFromDrop(bracket, mkId) {
+  const wb = bracket.wb;
+  if (!wb?.length || !bracket.lb?.[0]?.length) return false;
+
+  const stripFrom = 1;
+  const removed = collectLbMatchIds(bracket.lb, stripFrom);
+  if (bracket.grand) removed.add(bracket.grand.id);
+
+  bracket.lb = bracket.lb.slice(0, stripFrom);
+  bracket.matches = (bracket.matches || []).filter((m) => !removed.has(m.id));
+  bracket.grand = null;
+
+  let seq = bracket.matches.length;
+  const nextId = () => mkId(seq++);
+
+  const ext = extendLbRoundsFrom(wb, bracket.lb, 1, 1, nextId);
+  bracket.matches.push(...ext.matches);
+
+  const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
+  bracket.matches.push(...tail.matches);
+  bracket.grand = tail.grand;
+
+  return true;
+}
+
+export function matchHasWinnerDestination(bracket, matchId) {
+  return (bracket.matches || []).some(
+    (m) =>
+      (m.feedA?.matchId === matchId && m.feedA?.slot === "winner") ||
+      (m.feedB?.matchId === matchId && m.feedB?.slot === "winner")
+  );
+}
+
+/** Cruces lb-pre-entry en lb[0] sin destino para el ganador. */
+export function findOrphanPrelimLbEntries(bracket) {
+  const wb = bracket.wb;
+  const lb0 = bracket.lb?.[0];
+  if (!wb?.[0] || !lb0?.length) return [];
+
+  const std = wb[0].length / 2;
+  return lb0.slice(std).filter((m) => !matchHasWinnerDestination(bracket, m.id));
+}
+
+function lbHasConfirmedBeyondR0(bracket) {
+  return (bracket.lb || []).slice(1).some((round) => round?.some((m) => m.confirmed));
+}
+
+/** Añade solo el cruce LB R1 faltante sin borrar rondas ya jugadas. */
+function repairOrphanPrelimMinimal(bracket, mkId, orphans) {
+  let changed = false;
+  if (!bracket.lb[1]) bracket.lb[1] = [];
+
+  const usedWbLosers = new Set();
+  for (const m of bracket.lb[1]) {
+    if (m.feedB?.slot === "loser") usedWbLosers.add(m.feedB.matchId);
+  }
+
+  for (const entry of orphans) {
+    if (entry.feedA && !entry.feedB && !entry.teamB) {
+      entry.teamB = `bye-${entry.id}`;
+      changed = true;
+    }
+    if (matchHasWinnerDestination(bracket, entry.id)) continue;
+
+    const match = createMatch(mkId(), "losers", 1, bracket.lb[1].length);
+    match.feedA = feed(entry, "winner");
+    const wb1 = bracket.wb?.[1] || [];
+    const freeWb = wb1.find((w) => !usedWbLosers.has(w.id));
+    if (freeWb) {
+      match.feedB = feed(freeWb, "loser");
+      usedWbLosers.add(freeWb.id);
+    }
+    bracket.lb[1].push(match);
+    bracket.matches.push(match);
+    changed = true;
+  }
+  return changed;
+}
+
+export function repairOrphanPrelimLbEntries(bracket, mkId) {
+  const orphans = findOrphanPrelimLbEntries(bracket);
+  if (!orphans.length) return false;
+
+  let seq = bracket.matches.length;
+  const nextId = () => mkId(seq++);
+  let changed = false;
+
+  for (const entry of orphans) {
+    if (entry.feedA && !entry.feedB && !entry.teamB) {
+      entry.teamB = `bye-${entry.id}`;
+      changed = true;
+    }
+  }
+
+  if (lbHasConfirmedBeyondR0(bracket)) {
+    if (repairOrphanPrelimMinimal(bracket, nextId, orphans)) changed = true;
+    return changed;
+  }
+
+  if (rebuildLbFromDrop(bracket, nextId)) changed = true;
+  return changed;
+}
+
+/** Todos los cruces de repechaje (salvo gran final) deben tener al menos un feed de salida. */
+export function validateLbWinnerDestinations(bracket) {
+  const issues = [];
+  const wb = bracket.wb;
+  if (!wb?.length) return issues;
+
+  for (const round of bracket.lb || []) {
+    for (const m of round || []) {
+      if (!matchHasWinnerDestination(bracket, m.id)) {
+        issues.push(m.id);
+      }
+    }
+  }
+  return issues;
+}
