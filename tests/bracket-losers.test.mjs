@@ -4,10 +4,10 @@ import {
   buildDoubleElimBracket,
   buildLb0,
   feed,
-  mergePrelimSoloIntoLb0,
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   validateLbWinnerDestinations,
+  wireLokitoVsLb0WinnerInLb1,
   createMatch,
 } from "../bracket-engine.mjs";
 
@@ -59,7 +59,7 @@ test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () =
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
 });
 
-test("merge prelim: 5 cruces LB R1 pasan a 4 (prelim en cruce no confirmado)", () => {
+test("lokito en LB R2 vs ganador cruce 4; LB R1 sigue con 4 cruces intactos", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;
@@ -69,14 +69,17 @@ test("merge prelim: 5 cruces LB R1 pasan a 4 (prelim en cruce no confirmado)", (
   lb0.push(solo);
   const bracket = { wb, lb: [lb0], matches: [...lb0, solo], grand: null };
 
-  const merged = mergePrelimSoloIntoLb0(bracket, mk);
+  const wired = wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
 
-  assert.equal(merged.changed, true);
+  assert.equal(wired.changed, true);
   assert.equal(bracket.lb[0].length, 4);
   assert.ok(!bracket.lb[0].some((m) => m.id === solo.id));
-  const donor = bracket.lb[0][3];
-  assert.equal(donor.feedB?.matchId, "pre-0");
-  assert.ok(bracket.lb[1]?.length >= 1);
+  const host = bracket.lb[0][3];
+  const lb2 = bracket.lb[1].find(
+    (m) => m.feedA?.matchId === host.id && m.feedB?.matchId === "pre-0"
+  );
+  assert.ok(lb2);
+  assert.equal(host.feedB?.matchId, wb[0][7].id);
 });
 
 test("con LB confirmados: no borra ni altera partidos ya jugados", () => {
@@ -109,8 +112,8 @@ test("con LB confirmados: no borra ni altera partidos ya jugados", () => {
   assert.equal(bracket.lb[0].length, 4);
   assert.ok(!bracket.lb[0].some((m) => m.id === prelim.id));
   assert.ok(
-    bracket.lb[0].some(
-      (m) => !m.confirmed && (m.feedB?.matchId === "pre-0" || m.feedA?.matchId === "pre-0")
+    bracket.lb[1].some(
+      (m) => m.feedB?.matchId === "pre-0" && m.feedA?.slot === "winner"
     )
   );
 });

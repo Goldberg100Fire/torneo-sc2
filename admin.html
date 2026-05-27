@@ -1099,8 +1099,8 @@
           queueMicrotask(() =>
             showToast(
               repair.preservedConfirmed
-                ? "Repechaje: el preliminar se emparejó en un cruce de LB R1 (sin tocar partidos confirmados). Revisa y guarda."
-                : "Repechaje corregido: 4 cruces en LB R1. Revisa el cuadro y guarda."
+                ? "Lokito (prelim) queda en LB R2 contra el ganador del cruce 4 de LB R1. Los 4 cruces de R1 no se modifican. Guarda."
+                : "Repechaje corregido. Revisa el cuadro y guarda."
             )
           );
         }
@@ -1974,13 +1974,9 @@
       let seq = bracket.matches.length;
       const mk = () => `m-${seq++}`;
       window.BracketEngine.rebuildLbFromDrop(bracket, mk);
-      if (bracket._displacedPrelimLb) {
-        window.BracketEngine.wireDisplacedWbLoserToLb1(
-          bracket,
-          bracket._displacedPrelimLb,
-          mk
-        );
-        delete bracket._displacedPrelimLb;
+      if (bracket._prelimLbFeed) {
+        window.BracketEngine.wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
+        delete bracket._prelimLbFeed;
       }
     }
 
@@ -2184,41 +2180,12 @@
       return matches;
     }
 
-    function wirePrelimIntoLb0Slot(bracket, prelimFeed) {
-      const std = bracket.wb[0].length / 2;
-      const donor =
-        [...(bracket.lb[0] || [])]
-          .filter((m) => m.index < std && m.feedA && m.feedB && !m.confirmed)
-          .pop() || bracket.lb[0][std - 1];
-      if (!donor?.feedB) return false;
-      bracket._displacedPrelimLb = donor.feedB;
-      donor.feedB = prelimFeed;
-      donor.teamB = null;
-      return true;
-    }
-
     function wireSinglePrelimLoser(bracket, prelimMatch) {
-      if (!bracket.lb?.length) bracket.lb = [[]];
-      if (!bracket.lb[0]) bracket.lb[0] = [];
-      if (wirePrelimIntoLb0Slot(bracket, feed(prelimMatch, "loser"))) return;
-      let seq = bracket.matches.length;
-      const mkId = () => `lb-pre-entry-${seq++}`;
-      const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
-      entry.feedA = feed(prelimMatch, "loser");
-      bracket.lb[0].push(entry);
-      bracket.matches.push(entry);
+      bracket._prelimLbFeed = feed(prelimMatch, "loser");
     }
 
     function wirePrelimLbChampionToBracket(bracket, finalPrelimLbMatch) {
-      if (!bracket.lb?.length) bracket.lb = [[]];
-      if (!bracket.lb[0]) bracket.lb[0] = [];
-      if (wirePrelimIntoLb0Slot(bracket, feed(finalPrelimLbMatch, "winner"))) return;
-      let seq = bracket.matches.length;
-      const mkId = () => `lb-pre-entry-${seq++}`;
-      const entry = makeMatch(mkId, "losers", 0, bracket.lb[0].length);
-      entry.feedA = feed(finalPrelimLbMatch, "winner");
-      bracket.lb[0].push(entry);
-      bracket.matches.push(entry);
+      bracket._prelimLbFeed = feed(finalPrelimLbMatch, "winner");
     }
 
     /** Plazas en cuadro principal: equipo directo o ganador de preliminar */
