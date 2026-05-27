@@ -61,6 +61,50 @@ export function createTournamentLib(options = {}) {
     return Date.parse(p?.savedAt || p?.drawInfo?.drawnAt || 0) || 0;
   }
 
+  /** Huella de equipos/jugadores para detectar copias locales desactualizadas. */
+  function rosterSignature(p) {
+    if (!p?.teams?.length) return "";
+    return p.teams
+      .map((t) => {
+        const players = (t.players || []).map((x) => String(x || "").trim()).join("\t");
+        return `${t.id}\t${String(t.name || "").trim()}\t${players}`;
+      })
+      .sort()
+      .join("\n");
+  }
+
+  /**
+   * Elige la copia correcta al abrir admin en otro PC.
+   * Evita que un savedAt inflado en localStorage gane sobre Firestore/servidor.
+   */
+  function resolveAuthoritativePayload(local, cloud, options = {}) {
+    if (!local && !cloud) return null;
+    if (!local) return cloud;
+    if (!cloud) return local;
+
+    const prefer = options.prefer === "local" ? "local" : "cloud";
+    const lTime = payloadTime(local);
+    const cTime = payloadTime(cloud);
+    const rosterDiff = rosterSignature(local) !== rosterSignature(cloud);
+
+    if (rosterDiff && lTime > cTime && hasBracketData(cloud)) {
+      const lConfirmed = countConfirmedMatchesInPayload(local);
+      const cConfirmed = countConfirmedMatchesInPayload(cloud);
+      if (cConfirmed >= lConfirmed) {
+        return {
+          ...cloud,
+          teams: cloneTeams(cloud.teams),
+          teamIdCounter: Math.max(local.teamIdCounter || 0, cloud.teamIdCounter || 0),
+          savedAt: cloud.savedAt || local.savedAt,
+        };
+      }
+    }
+
+    if (lTime > cTime) return mergePayload(local, cloud, { prefer: "local" });
+    if (cTime > lTime) return mergePayload(local, cloud, { prefer: "cloud" });
+    return mergePayload(local, cloud, { prefer });
+  }
+
   function pickPayload(local, cloud, options = {}) {
     const prefer = options.prefer === "cloud" ? "cloud" : "local";
     const lTime = payloadTime(local);
@@ -180,6 +224,8 @@ export function createTournamentLib(options = {}) {
     countConfirmedMatchesInPayload,
     payloadScore,
     payloadTime,
+    rosterSignature,
+    resolveAuthoritativePayload,
     mergeTeamPlayers,
     mergeTeams,
     mergePayload,

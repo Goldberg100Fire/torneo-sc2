@@ -7,6 +7,8 @@ const {
   hasBracketData,
   payloadScore,
   mergePayload,
+  resolveAuthoritativePayload,
+  rosterSignature,
   feedBlocksSide,
 } = lib;
 
@@ -101,6 +103,36 @@ test("mergePayload prefers remote teams on equal timestamps when requested", () 
   const merged = mergePayload(local, cloud, { prefer: "cloud" });
 
   assert.equal(merged.teams[0].players[0], "Jugador actual");
+});
+
+test("resolveAuthoritativePayload prefers cloud when local savedAt is newer but roster is stale", () => {
+  const drawnAt = "2026-05-20T01:00:00.000Z";
+  const local = basePayload({
+    savedAt: "2026-05-26T12:00:00.000Z",
+    drawInfo: { drawnAt },
+    teams: [{ id: "t1", name: "Clan viejo", players: ["Jugador viejo"] }],
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true, scoreA: 2, scoreB: 0 }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true, scoreA: 2, scoreB: 0 }],
+    },
+  });
+  const cloud = basePayload({
+    savedAt: "2026-05-24T22:00:00.000Z",
+    drawInfo: { drawnAt },
+    teams: [{ id: "t1", name: "Clan nuevo", players: ["Jugador actual"] }],
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true, scoreA: 2, scoreB: 1 }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true, scoreA: 2, scoreB: 1 }],
+    },
+  });
+
+  const merged = resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
+
+  assert.equal(rosterSignature(merged), rosterSignature(cloud));
+  assert.equal(merged.teams[0].players[0], "Jugador actual");
+  assert.equal(merged.bracket.matches[0].scoreB, 1);
 });
 
 test("feedBlocksSide ignores stale feed when direct team is set", () => {

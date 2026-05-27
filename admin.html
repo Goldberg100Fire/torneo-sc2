@@ -928,16 +928,22 @@
   <script defer>
     let hasBracketData;
     let payloadScore;
+    let payloadTime;
+    let rosterSignature;
     let mergePayload;
     let choosePayload;
+    let resolveAuthoritativePayload;
 
     function bindTournamentLib() {
       const L = window.TournamentLib;
       if (!L) return false;
       hasBracketData = L.hasBracketData;
       payloadScore = L.payloadScore;
+      payloadTime = L.payloadTime;
+      rosterSignature = L.rosterSignature;
       mergePayload = L.mergePayload;
       choosePayload = L.choosePayload;
+      resolveAuthoritativePayload = L.resolveAuthoritativePayload;
       return true;
     }
 
@@ -957,6 +963,7 @@
       drawInfo: null,
       drawn: false,
       roundFormats: null,
+      savedAt: null,
     };
 
     let teamIdCounter = 1;
@@ -1010,8 +1017,8 @@
       return { id: uid(), name, players: players.slice(0, MAX_PLAYERS_PER_TEAM) };
     }
 
-    function getPayload() {
-      return {
+    function getPayload(options = {}) {
+      const payload = {
         teams: state.teams,
         bracket: state.bracket,
         preliminary: state.preliminary,
@@ -1019,8 +1026,14 @@
         drawn: state.drawn,
         roundFormats: state.roundFormats,
         teamIdCounter,
-        savedAt: new Date().toISOString(),
       };
+      if (options.bumpSavedAt) {
+        payload.savedAt = new Date().toISOString();
+        state.savedAt = payload.savedAt;
+      } else if (state.savedAt) {
+        payload.savedAt = state.savedAt;
+      }
+      return payload;
     }
 
     function getTargetSize(n) {
@@ -1043,9 +1056,9 @@
     }
 
     function persistLocal(payload) {
-      const p = { ...payload, savedAt: new Date().toISOString() };
+      if (payload?.savedAt) state.savedAt = payload.savedAt;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         return true;
       } catch (e) {
         console.error("localStorage:", e);
@@ -1062,6 +1075,7 @@
       state.drawInfo = data.drawInfo || null;
       state.drawn = !!data.drawn;
       state.roundFormats = data.roundFormats || null;
+      state.savedAt = data.savedAt || state.savedAt || null;
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
       if (state.bracket) {
         if (!state.bracket.size && state.bracket.wb?.length) {
@@ -1569,7 +1583,7 @@
 
     async function flushSaveToRemote(silent) {
       syncTeamsFromDOM();
-      const payload = getPayload();
+      const payload = getPayload({ bumpSavedAt: true });
       persistLocal(payload);
       const { okFb, okSql } = await persistRemote(payload);
       updateStorageBadge();
@@ -1588,7 +1602,7 @@
 
     function save(silent, immediate) {
       syncTeamsFromDOM();
-      const payload = getPayload();
+      const payload = getPayload({ bumpSavedAt: true });
       persistLocal(payload);
 
       if (immediate) {
@@ -3255,15 +3269,15 @@
       initFirebaseFromConfig();
       await loadFirebaseSdk();
       const cloud = await fetchCloudPayload();
-      if (!cloud || !hasBracketData(cloud)) {
-        showToast("No hay cuadro publicado en Firestore/servidor");
+      if (!cloud) {
+        showToast("No hay datos en Firestore/servidor");
         return;
       }
       applyPayload(cloud);
-      persistLocal(getPayload());
+      persistLocal(cloud);
       renderAll();
       updateStorageBadge();
-      showToast("Cuadro actualizado desde la nube (copia local reemplazada)");
+      showToast("Datos reemplazados por la copia de la nube");
     }
 
     async function syncFromCloud() {
@@ -3283,17 +3297,20 @@
 
       const local = readLocalPayload();
       const cloud = await fetchCloudPayload();
-      const merged = mergePayload(local, cloud, { prefer: "cloud" });
+      const merged = resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
       if (merged) {
         applyPayload(merged);
-        const payload = getPayload();
-        persistLocal(payload);
+        persistLocal(merged);
         renderAll();
-        if (cloud && payloadScore(payload) > payloadScore(cloud) && isAdminLoggedIn()) {
-          await persistRemote(payload);
-        }
-        if (firebaseReady && cloud) showToast("Sincronizado con la nube");
-        else if (hasBracketData(payload) && !cloud && !isAdminLoggedIn()) {
+        if (cloud) {
+          const usedCloud =
+            rosterSignature(merged) === rosterSignature(cloud) &&
+            payloadTime(merged) === payloadTime(cloud);
+          if (usedCloud) showToast("Datos cargados desde la nube");
+          else if (local && payloadScore(local) > payloadScore(cloud)) {
+            showToast("Hay una copia local más reciente. Pulsa Guardar para publicarla.");
+          } else showToast("Sincronizado con la nube");
+        } else if (hasBracketData(merged) && !isAdminLoggedIn()) {
           showToast("Cuadro guardado aquí. Inicia sesión admin para copia en Firestore.");
         }
       }
@@ -3335,28 +3352,12 @@
         syncTeamsFromDOM();
         const payload = getPayload();
         persistLocal(payload);
-        if (!isFileMode && payload && isAdminLoggedIn() && canEditTournament()) {
-          getIdToken()
-            .then((token) => {
-              if (!token) return;
-              fetch(API, {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(payload),
-                keepalive: true,
-              }).catch(() => {});
-            })
-            .catch(() => {});
-        }
       } catch (e) {
         /* ignore */
       }
     }
 
-    function initAdminApp() {
+    async function initAdminApp() {
       if (adminAppStarted) return;
       adminAppStarted = true;
       window.addEventListener("resize", scheduleBracketGuides);
@@ -3365,19 +3366,17 @@
         if (document.visibilityState === "hidden") flushSaveOnPageHide();
       });
       try {
-        loadFromLocalStorage();
-        ensureDefaultTeams();
+        await loadFirebaseSdk();
+        initFirebaseFromConfig();
+        await syncFromCloud();
+        if (!state.teams?.length) {
+          loadFromLocalStorage();
+          ensureDefaultTeams();
+        }
         renderAll();
-        loadFirebaseSdk()
-          .then(async () => {
-            await syncFromCloud();
-            if (isAdminLoggedIn() && hasBracketData(state)) {
-              await persistRemote(getPayload());
-            }
-          })
-          .catch((e) => console.warn("Sync nube:", e));
       } catch (e) {
         console.error("Error al iniciar:", e);
+        loadFromLocalStorage();
         ensureDefaultTeams();
         renderAll();
         showToast("Error al cargar; usando datos locales");
@@ -3456,7 +3455,7 @@
               app.hidden = false;
               document.getElementById("adminUserLabel").textContent = user.email;
               applyRoleUI();
-              initAdminApp();
+              await initAdminApp();
             } catch (e) {
               errEl.textContent = e.message || "Error al verificar permisos";
               await firebaseAuth.signOut();

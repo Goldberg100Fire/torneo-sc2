@@ -752,6 +752,7 @@
     let payloadScore;
     let mergePayload;
     let choosePayload;
+    let resolveAuthoritativePayload;
 
     function bindTournamentLib() {
       const L = window.TournamentLib;
@@ -760,6 +761,7 @@
       payloadScore = L.payloadScore;
       mergePayload = L.mergePayload;
       choosePayload = L.choosePayload;
+      resolveAuthoritativePayload = L.resolveAuthoritativePayload;
       return true;
     }
 
@@ -1067,7 +1069,7 @@
         const json = await res.json();
         if (!json.data) return false;
         const local = readLocalPayload();
-        const merged = mergePayload(local, json.data, { prefer: "cloud" });
+        const merged = resolveAuthoritativePayload(local, json.data, { prefer: "cloud" });
         if (merged) applyMergedPayload(merged);
         return !!merged;
       } catch (e) {
@@ -1148,7 +1150,7 @@
       const cloud = await fetchCloudPayload();
       if (!cloud || typeof cloud !== "object") return false;
       const local = readLocalPayload();
-      return applyMergedPayload(mergePayload(local, cloud, { prefer: "cloud" }));
+      return applyMergedPayload(resolveAuthoritativePayload(local, cloud, { prefer: "cloud" }));
     }
 
     async function persistToFirestore(payload) {
@@ -1184,7 +1186,7 @@
         const json = await res.json();
         if (!json.data) return false;
         const local = readLocalPayload();
-        return applyMergedPayload(mergePayload(local, json.data, { prefer: "cloud" }));
+        return applyMergedPayload(resolveAuthoritativePayload(local, json.data, { prefer: "cloud" }));
       } catch (e) {
         return false;
       }
@@ -2382,7 +2384,7 @@
               } catch (e) {
                 /* ignore */
               }
-              const merged = mergePayload(local, payload, { prefer: "cloud" });
+              const merged = resolveAuthoritativePayload(local, payload, { prefer: "cloud" });
               if (applyMergedPayload(merged)) {
                 renderAll();
               }
@@ -2444,7 +2446,7 @@
 
       const cloud = await fetchCloudPayload();
       const local = readLocalPayload();
-      const merged = mergePayload(local, cloud, { prefer: "cloud" });
+      const merged = resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
 
       if (merged) applyMergedPayload(merged);
       renderAll();
@@ -2460,7 +2462,7 @@
         const json = await res.json();
         if (!json.data) return;
         const local = readLocalPayload();
-        const merged = mergePayload(local, json.data, { prefer: "cloud" });
+        const merged = resolveAuthoritativePayload(local, json.data, { prefer: "cloud" });
         if (!merged) return;
         const localHasBracket = hasBracketData(local);
         if (localHasBracket && payloadScore(merged) <= payloadScore(local)) return;
