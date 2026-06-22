@@ -9,6 +9,8 @@ const {
   mergePayload,
   resolveAuthoritativePayload,
   resolvePublicPayload,
+  shouldApplyRemotePayload,
+  isIncomingStaleWrite,
   rosterSignature,
   feedBlocksSide,
 } = lib;
@@ -163,6 +165,81 @@ test("resolvePublicPayload prefers cloud bracket over stale local cache", () => 
   const merged = resolvePublicPayload(local, cloud);
   assert.equal(hasBracketData(merged), true);
   assert.equal(merged.teams[0].name, "Nube");
+});
+
+test("resolvePublicPayload prefers cloud when it has more confirmed matches", () => {
+  const local = basePayload({
+    savedAt: "2026-05-26T12:00:00.000Z",
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true, scoreA: 2, scoreB: 0 }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true, scoreA: 2, scoreB: 0 }],
+    },
+  });
+  const cloud = basePayload({
+    savedAt: "2026-05-20T20:00:00.000Z",
+    bracket: {
+      wb: [
+        [
+          { id: "m1", confirmed: true, scoreA: 2, scoreB: 0 },
+          { id: "m2", confirmed: true, scoreA: 2, scoreB: 1 },
+        ],
+      ],
+      lb: [],
+      matches: [
+        { id: "m1", confirmed: true, scoreA: 2, scoreB: 0 },
+        { id: "m2", confirmed: true, scoreA: 2, scoreB: 1 },
+      ],
+    },
+  });
+  const merged = resolvePublicPayload(local, cloud);
+  assert.equal(merged.bracket.matches.length, 2);
+  assert.equal(merged.bracket.matches[1].id, "m2");
+});
+
+test("isIncomingStaleWrite allows saves with more confirmed results", () => {
+  const current = basePayload({
+    savedAt: "2026-05-26T12:00:00.000Z",
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true }],
+    },
+  });
+  const incoming = basePayload({
+    savedAt: "2026-05-20T20:00:00.000Z",
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true }, { id: "m2", confirmed: true }]],
+      lb: [],
+      matches: [
+        { id: "m1", confirmed: true },
+        { id: "m2", confirmed: true },
+      ],
+    },
+  });
+  assert.equal(isIncomingStaleWrite(incoming, current), false);
+});
+
+test("shouldApplyRemotePayload detects newer remote state", () => {
+  const current = basePayload({
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true }],
+    },
+  });
+  const incoming = basePayload({
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true }, { id: "m2", confirmed: true }]],
+      lb: [],
+      matches: [
+        { id: "m1", confirmed: true },
+        { id: "m2", confirmed: true },
+      ],
+    },
+  });
+  assert.equal(shouldApplyRemotePayload(current, incoming), true);
+  assert.equal(shouldApplyRemotePayload(incoming, current), false);
 });
 
 test("feedBlocksSide ignores direct seed without feed", () => {

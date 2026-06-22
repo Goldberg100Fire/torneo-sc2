@@ -132,9 +132,7 @@ function writeSqliteTournamentPayload(payload, updatedAt = new Date().toISOStrin
 }
 
 function isStaleTournamentWrite(incoming, current) {
-  const incomingTime = tournamentLib.payloadTime(incoming);
-  const currentTime = tournamentLib.payloadTime(current);
-  return !!(incomingTime && currentTime && incomingTime < currentTime);
+  return tournamentLib.isIncomingStaleWrite(incoming, current);
 }
 
 async function readFirestoreTournamentPayloadById(documentId) {

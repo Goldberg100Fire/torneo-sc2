@@ -913,6 +913,7 @@
     let resolveAuthoritativePayload;
 
     let resolvePublicPayload;
+    let shouldApplyRemotePayload;
 
     function bindTournamentLib() {
       const L = window.TournamentLib;
@@ -923,6 +924,7 @@
       choosePayload = L.choosePayload;
       resolveAuthoritativePayload = L.resolveAuthoritativePayload;
       resolvePublicPayload = L.resolvePublicPayload;
+      shouldApplyRemotePayload = L.shouldApplyRemotePayload;
       return true;
     }
 
@@ -1640,6 +1642,33 @@
         console.warn("localStorage:", e);
       }
       return true;
+    }
+
+    function getViewPayload() {
+      return {
+        teams: state.teams,
+        bracket: state.bracket,
+        preliminary: state.preliminary,
+        drawInfo: state.drawInfo,
+        drawn: state.drawn,
+        roundFormats: state.roundFormats,
+        savedAt: state.savedAt,
+        tournamentName: state.tournamentName,
+      };
+    }
+
+    function applyRemoteIfNewer(cloudPayload) {
+      if (!cloudPayload) return false;
+      const local = readLocalPayload();
+      const merged = resolvePayloadForView(local, cloudPayload, { prefer: "cloud" });
+      if (!merged) return false;
+      if (
+        typeof shouldApplyRemotePayload === "function" &&
+        !shouldApplyRemotePayload(getViewPayload(), merged)
+      ) {
+        return false;
+      }
+      return applyMergedPayload(merged);
     }
 
     async function fetchCloudPayload() {
@@ -2948,18 +2977,8 @@
             const d = snap.data();
             if (d.name) publicTournamentMeta.name = d.name;
             const payload = d.payload != null ? d.payload : d.data;
-            if (payload) {
-              let local = null;
-              try {
-                const raw = localStorage.getItem(getStorageKey());
-                if (raw) local = JSON.parse(raw);
-              } catch (e) {
-                /* ignore */
-              }
-              const merged = resolvePayloadForView(local, payload, { prefer: "cloud" });
-              if (applyMergedPayload(merged)) {
-                renderAll();
-              }
+            if (payload && applyRemoteIfNewer(payload)) {
+              renderAll();
             }
           }
           const el = document.getElementById("dbStatus");
@@ -3021,7 +3040,12 @@
       const local = readLocalPayload();
       const merged = resolvePayloadForView(local, cloud, { prefer: "cloud" });
 
-      if (merged) applyMergedPayload(merged);
+      if (merged) {
+        const emptyView = !hasBracketData(state);
+        if (emptyView || shouldApplyRemotePayload(getViewPayload(), merged)) {
+          applyMergedPayload(merged);
+        }
+      }
       renderAll();
       updateStorageBadge();
       return hasBracketData(state);
@@ -3036,15 +3060,10 @@
         const json = await res.json();
         if (json.name) publicTournamentMeta.name = json.name;
         if (!json.data) return;
-        const local = readLocalPayload();
-        const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
-        if (!merged) return;
-        const localHasBracket = hasBracketData(local);
-        if (localHasBracket && payloadScore(merged) <= payloadScore(local)) return;
-        if (!hasBracketData(merged) && !state.teams?.length) return;
-        applyMergedPayload(merged);
-        renderAll();
-        updateStorageBadge();
+        if (applyRemoteIfNewer(json.data)) {
+          renderAll();
+          updateStorageBadge();
+        }
       } catch (e) {
         /* ignore */
       }
@@ -3091,7 +3110,8 @@
 
       const hasData = await syncFromCloud();
       if (!hasData && !hasBracketData(state)) {
-        loadFromLocalStorage();
+        const retried = await loadFromServerApi();
+        if (!retried) await syncFromCloud();
       }
 
       setPublicLoading(false);

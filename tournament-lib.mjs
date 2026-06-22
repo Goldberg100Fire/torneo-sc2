@@ -97,6 +97,16 @@ export function createTournamentLib(options = {}) {
     const prefer = options.prefer === "local" ? "local" : "cloud";
     const lTime = payloadTime(local);
     const cTime = payloadTime(cloud);
+    const lConfirmed = countConfirmedMatchesInPayload(local);
+    const cConfirmed = countConfirmedMatchesInPayload(cloud);
+
+    if (cConfirmed > lConfirmed) {
+      return mergePayload(local, cloud, { prefer: "cloud" });
+    }
+    if (lConfirmed > cConfirmed) {
+      return mergePayload(local, cloud, { prefer: "local" });
+    }
+
     const rosterDiff = rosterSignature(local) !== rosterSignature(cloud);
 
     if (rosterDiff && lTime > cTime && hasBracketData(cloud)) {
@@ -117,25 +127,73 @@ export function createTournamentLib(options = {}) {
     return mergePayload(local, cloud, { prefer });
   }
 
-  /** Vista pública: prioriza copia con cuadro publicado (Firestore) sobre caché local vacía. */
+  /** Vista pública: la nube manda si tiene más partidos confirmados o mejor puntuación. */
   function resolvePublicPayload(local, cloud) {
     if (!local && !cloud) return null;
     if (!local) return cloud;
     if (!cloud) return local;
+
+    const lConfirmed = countConfirmedMatchesInPayload(local);
+    const cConfirmed = countConfirmedMatchesInPayload(cloud);
+    if (cConfirmed > lConfirmed) {
+      return mergePayload(local, cloud, { prefer: "cloud" });
+    }
+    if (lConfirmed > cConfirmed) {
+      return mergePayload(local, cloud, { prefer: "local" });
+    }
+
     const lLive = isPubliclyListable(local);
     const cLive = isPubliclyListable(cloud);
-    if (cLive && !lLive) return cloud;
-    if (lLive && !cLive) return local;
-    if (cLive && lLive) {
-      return payloadScore(cloud) >= payloadScore(local)
-        ? mergePayload(local, cloud, { prefer: "cloud" })
-        : mergePayload(local, cloud, { prefer: "local" });
+    if (cLive && !lLive) {
+      return {
+        ...cloud,
+        teamIdCounter: Math.max(local?.teamIdCounter || 0, cloud.teamIdCounter || 0),
+      };
     }
-    return resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
+    if (lLive && !cLive) {
+      return {
+        ...local,
+        teamIdCounter: Math.max(local?.teamIdCounter || 0, cloud.teamIdCounter || 0),
+      };
+    }
+
+    const lScore = payloadScore(local);
+    const cScore = payloadScore(cloud);
+    if (cScore >= lScore) {
+      return mergePayload(local, cloud, { prefer: "cloud" });
+    }
+    return mergePayload(local, cloud, { prefer: "local" });
+  }
+
+  /** ¿Aplicar actualización remota sobre lo que se muestra ahora? */
+  function shouldApplyRemotePayload(current, incoming) {
+    if (!incoming) return false;
+    if (!current) return true;
+    const incC = countConfirmedMatchesInPayload(incoming);
+    const curC = countConfirmedMatchesInPayload(current);
+    if (incC !== curC) return incC > curC;
+    return payloadScore(incoming) > payloadScore(current);
+  }
+
+  /** Escritura obsoleta solo si no aporta más resultados confirmados y es más antigua. */
+  function isIncomingStaleWrite(incoming, current) {
+    if (!current || !incoming) return false;
+    const incC = countConfirmedMatchesInPayload(incoming);
+    const curC = countConfirmedMatchesInPayload(current);
+    if (incC > curC) return false;
+    if (incC < curC) return true;
+    const incomingTime = payloadTime(incoming);
+    const currentTime = payloadTime(current);
+    return !!(incomingTime && currentTime && incomingTime < currentTime);
   }
 
   function pickPayload(local, cloud, options = {}) {
     const prefer = options.prefer === "cloud" ? "cloud" : "local";
+    const lConfirmed = countConfirmedMatchesInPayload(local);
+    const cConfirmed = countConfirmedMatchesInPayload(cloud);
+    if (cConfirmed > lConfirmed) return cloud;
+    if (lConfirmed > cConfirmed) return local;
+
     const lTime = payloadTime(local);
     const cTime = payloadTime(cloud);
     if (lTime > cTime) return local;
@@ -256,6 +314,8 @@ export function createTournamentLib(options = {}) {
     rosterSignature,
     resolveAuthoritativePayload,
     resolvePublicPayload,
+    shouldApplyRemotePayload,
+    isIncomingStaleWrite,
     mergeTeamPlayers,
     mergeTeams,
     mergePayload,

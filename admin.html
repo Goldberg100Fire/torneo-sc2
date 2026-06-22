@@ -1791,9 +1791,7 @@
     }
 
     function isStaleTournamentWrite(incoming, current) {
-      const incomingTime = payloadSavedTime(incoming);
-      const currentTime = payloadSavedTime(current);
-      return !!(incomingTime && currentTime && incomingTime < currentTime);
+      return window.TournamentLib?.isIncomingStaleWrite(incoming, current) ?? false;
     }
 
     async function inviteEditorByEmail(emailRaw) {
