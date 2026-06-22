@@ -1240,7 +1240,7 @@
     let teamIdCounter = 1;
     let saveTimer = null;
     let saveGeneration = 0;
-    let lastRemoteSave = { okFb: null, okSql: null, at: null };
+    let lastRemoteSave = { okFb: null, okSql: null, published: null, at: null };
     let autoPublishAttempted = false;
     let firebaseReady = false;
     let firestoreDb = null;
@@ -1501,6 +1501,7 @@
       if (
         hasBracketData(state) &&
         isAdminLoggedIn() &&
+        lastRemoteSave.published === false &&
         lastRemoteSave.okFb === false &&
         lastRemoteSave.okSql === false
       ) {
@@ -2323,10 +2324,14 @@
         if (json.stale && !options.force) {
           return persistToDatabase(payload, { force: true });
         }
-        return !!json.firestoreOk || json.ok === true;
+        return {
+          ok: !!json.firestoreOk,
+          published: !!json.published,
+          firestoreOk: !!json.firestoreOk,
+        };
       } catch (e) {
         console.warn("API guardar:", e);
-        return false;
+        return { ok: false, published: false, firestoreOk: false };
       }
     }
 
@@ -2344,39 +2349,58 @@
     }
 
     async function persistRemote(payload) {
-      let okSql = false;
+      let apiResult = { ok: false, published: false, firestoreOk: false };
       let okFb = false;
       if (canPublishToCloud()) {
-        okSql = await persistToDatabase(payload);
+        apiResult = await persistToDatabase(payload);
       }
       if (isAdminLoggedIn() && canPublishToCloud()) {
         okFb = await persistToFirestore(payload);
       }
-      if (!okSql && !okFb && hasBracketData(payload) && canEditTournament() && !canPublishToCloud()) {
+      if (
+        !apiResult.firestoreOk &&
+        !okFb &&
+        hasBracketData(payload) &&
+        canEditTournament() &&
+        !canPublishToCloud()
+      ) {
         console.warn("Sin permiso de publicación: no eres el dueño de este torneo.");
       }
       await pingSqliteBackend();
-      lastRemoteSave = { okFb, okSql, at: Date.now() };
-      return { okFb, okSql };
+      const published = !!(apiResult.published || (okFb && hasBracketData(payload)));
+      lastRemoteSave = {
+        okFb,
+        okSql: apiResult.firestoreOk,
+        published,
+        at: Date.now(),
+      };
+      return { okFb, okSql: apiResult.firestoreOk, published };
     }
 
     async function flushSaveToRemote(silent) {
       syncTeamsFromDOM();
       const payload = getPayload({ bumpSavedAt: true });
       persistLocal(payload);
-      const { okFb, okSql } = await persistRemote(payload);
+      const { okFb, okSql, published } = await persistRemote(payload);
       updateStorageBadge();
+      updateTournamentBar();
       if (!silent) {
-        const rem = ["navegador"];
-        if (okFb) rem.push("Firestore");
-        if (okSql) rem.push("servidor");
-        if (okFb || okSql) showToast("Guardado: " + rem.join(" + "));
-        else if (!canPublishToCloud() && hasBracketData(payload)) {
+        if (hasBracketData(payload) && published) {
+          showToast("Cuadro publicado en la nube — visible en vista pública");
+        } else if (hasBracketData(payload) && (okFb || okSql)) {
+          showToast("Cuadro guardado en la nube — recarga la vista pública");
+        } else if (hasBracketData(payload)) {
+          showToast("Cuadro guardado aquí. No se publicó en la nube — pulsa Publicar en la nube");
+        } else if (okFb || okSql) {
+          showToast(
+            "Equipos guardados. Pulsa Sortear / emparejar para que el público vea el cuadro."
+          );
+        } else if (!canPublishToCloud() && hasBracketData(payload)) {
           showToast("Guardado aquí. Solo el dueño puede publicar en la nube.");
         } else if (!isAdminLoggedIn() && window.FIREBASE_SC2_CONFIG?.enabled) {
           showToast("Guardado aquí. Inicia sesión admin para Firestore.");
         } else if (isFileMode) showToast("Guardado en este navegador (Exportar JSON como copia)");
-        else showToast("No se publicó en la nube — pulsa Publicar en la nube");
+        else showToast("Guardado en este navegador");
       }
       return payload;
     }
@@ -3352,19 +3376,30 @@
       const sel = document.getElementById("tournamentSelect");
       if (sel && sel.value !== activeTournamentId) sel.value = activeTournamentId;
       if (hint) {
-        hint.textContent = isLegacyPrincipalTournament()
-          ? "Torneo principal — solo tú (admin principal) lo gestionas aquí."
-          : "Tu torneo — el público lo verá cuando sortees los cruces.";
+        if (isLegacyPrincipalTournament()) {
+          hint.textContent = "Torneo principal — solo tú (admin principal) lo gestionas aquí.";
+        } else if (hasBracketData(state)) {
+          hint.textContent = lastRemoteSave.published
+            ? "Cuadro publicado — el público ya puede verlo en Vista pública."
+            : "Cuadro listo — pulsa Publicar en la nube para que otros navegadores lo vean.";
+        } else {
+          const n = state.teams?.filter((t) => t.name?.trim()).length || 0;
+          hint.textContent =
+            n >= 2
+              ? `Paso 2: tienes ${n} equipos — pulsa Sortear / emparejar para publicar el cuadro.`
+              : "Paso 1: añade equipos con nombre, luego Sortear / emparejar.";
+        }
       }
       if (link && window.TournamentTenant) {
-        link.href = state.drawn
+        const ready = hasBracketData(state);
+        link.href = ready
           ? window.TournamentTenant.publicViewUrl(activeTournamentId)
           : "#";
-        link.style.pointerEvents = state.drawn ? "" : "none";
-        link.style.opacity = state.drawn ? "1" : "0.45";
-        link.title = state.drawn
+        link.style.pointerEvents = ready ? "" : "none";
+        link.style.opacity = ready ? "1" : "0.45";
+        link.title = ready
           ? "Abrir vista pública"
-          : "Publica el torneo sorteando cruces primero";
+          : "Sortea cruces primero — sin cuadro la vista pública estará vacía";
       }
       const hdr = document.querySelector("header h1");
       if (hdr && activeTournamentName && !isLegacyPrincipalTournament()) {
@@ -3849,18 +3884,19 @@
         alert("No se pudo guardar el sorteo en este navegador. Usa Exportar JSON como copia.");
       }
 
-      const { okFb, okSql } = await persistRemote(payload);
+      const { okFb, okSql, published } = await persistRemote(payload);
       renderBracket();
       updateTournamentBar();
 
       const parts = ["Sorteo listo"];
-      if (okFb) parts.push("Firestore");
-      if (okSql) parts.push("servidor");
-      if (!okFb && window.FIREBASE_SC2_CONFIG?.enabled && !isAdminLoggedIn()) {
+      if (published) parts.push("publicado en la nube");
+      else if (okFb) parts.push("Firestore");
+      else if (okSql) parts.push("servidor");
+      if (!published && !okFb && window.FIREBASE_SC2_CONFIG?.enabled && !isAdminLoggedIn()) {
         parts.push("— inicia sesión admin para que el público vea el cuadro");
       }
       showToast(parts.join(" · "));
-      if (!okFb && !okSql) {
+      if (!published && !okFb && !okSql) {
         updatePublishBanner(await fetchCloudPayload());
         alert(
           "El cuadro quedó guardado SOLO en este navegador.\n\n" +
