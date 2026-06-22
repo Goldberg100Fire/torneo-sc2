@@ -75,6 +75,9 @@ service cloud.firestore {
         || (docId.matches('ut_.*')
           && request.auth != null
           && request.auth.uid == resource.data.ownerUid)
+        || (docId.matches('ut_.*')
+          && isEditor()
+          && !('ownerUid' in resource.data))
         || (docId.matches('ut_.*') && isSuperAdmin());
       allow delete: if docId.matches('ut_.*')
         && request.auth != null

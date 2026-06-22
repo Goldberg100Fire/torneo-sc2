@@ -220,6 +220,25 @@ test("isIncomingStaleWrite allows saves with more confirmed results", () => {
   assert.equal(isIncomingStaleWrite(incoming, current), false);
 });
 
+test("isIncomingStaleWrite never blocks first bracket publish", () => {
+  const current = basePayload({
+    teams: [],
+    drawn: false,
+    savedAt: "2026-05-26T12:00:00.000Z",
+  });
+  const incoming = basePayload({
+    drawn: true,
+    savedAt: "2026-05-26T11:00:00.000Z",
+    drawInfo: { drawnAt: "2026-05-26T11:00:00.000Z" },
+    bracket: {
+      wb: [[{ id: "m1" }]],
+      lb: [],
+      matches: [{ id: "m1" }],
+    },
+  });
+  assert.equal(isIncomingStaleWrite(incoming, current), false);
+});
+
 test("shouldApplyRemotePayload detects newer remote state", () => {
   const current = basePayload({
     bracket: {

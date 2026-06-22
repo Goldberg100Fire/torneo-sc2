@@ -178,6 +178,8 @@ export function createTournamentLib(options = {}) {
   /** Escritura obsoleta solo si no aporta más resultados confirmados y es más antigua. */
   function isIncomingStaleWrite(incoming, current) {
     if (!current || !incoming) return false;
+    if (hasBracketStructure(incoming) && !hasBracketStructure(current)) return false;
+    if (isPubliclyListable(incoming) && !isPubliclyListable(current)) return false;
     const incC = countConfirmedMatchesInPayload(incoming);
     const curC = countConfirmedMatchesInPayload(current);
     if (incC > curC) return false;

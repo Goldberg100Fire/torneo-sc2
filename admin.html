@@ -1175,6 +1175,7 @@
     let activeTournamentId =
       window.TournamentTenant?.resolveTournamentIdFromSearch(location.search) || "principal";
     let activeTournamentName = "";
+    let activeTournamentOwnerUid = null;
 
     function isLegacyPrincipalTournament() {
       return window.TournamentTenant?.isLegacyPrincipal(activeTournamentId) ?? true;
@@ -1481,9 +1482,12 @@
         lastRemoteSave.okFb === false &&
         lastRemoteSave.okSql === false
       ) {
-        el.textContent = "Solo en este navegador — pulsa Publicar en la nube";
-        el.title =
-          "El cuadro no llegó a Firestore. La vista pública en otros dispositivos no lo verá hasta publicar.";
+        el.textContent = canPublishToCloud()
+          ? "Solo en este navegador — pulsa Publicar en la nube"
+          : "Sin permiso para publicar este torneo";
+        el.title = canPublishToCloud()
+          ? "El cuadro no llegó a Firestore. La vista pública en otros dispositivos no lo verá hasta publicar."
+          : "Solo el dueño del torneo o el admin principal pueden publicar en la nube.";
         el.className = "db-status offline";
         return;
       }
@@ -1586,6 +1590,36 @@
     function canEditTournament() {
       if (isLegacyPrincipalTournament()) return isSuperAdmin();
       return currentAdminRole === "super" || currentAdminRole === "editor";
+    }
+
+    function canPublishToCloud() {
+      if (!isAdminLoggedIn()) return false;
+      if (isLegacyPrincipalTournament()) return isSuperAdmin();
+      if (isSuperAdmin()) return true;
+      const uid = firebaseAuth?.currentUser?.uid;
+      if (!uid) return false;
+      if (activeTournamentOwnerUid && activeTournamentOwnerUid === uid) return true;
+      if (!activeTournamentOwnerUid && currentAdminRole === "editor") return true;
+      return false;
+    }
+
+    async function loadTournamentOwnerMeta() {
+      activeTournamentOwnerUid = null;
+      if (isLegacyPrincipalTournament() || !firebaseReady || !firestoreDb) return;
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      const docId = getFirestoreDocId();
+      if (!cfg?.enabled || !docId) return;
+      try {
+        const snap = await firestoreDb.collection(cfg.firestoreCollection).doc(docId).get();
+        if (snap.exists) {
+          activeTournamentOwnerUid = snap.data()?.ownerUid || null;
+          if (!activeTournamentName && snap.data()?.name) {
+            activeTournamentName = snap.data().name;
+          }
+        }
+      } catch (e) {
+        console.warn("owner meta:", e);
+      }
     }
 
     async function ensureEditorNotOnPrincipal() {
@@ -2123,21 +2157,28 @@
     }
 
     async function persistToFirestore(payload) {
-      if (!isAdminLoggedIn() || !canEditTournament()) return false;
+      if (!isAdminLoggedIn() || !canPublishToCloud()) return false;
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const col = cfg.firestoreCollection;
       const doc = getFirestoreDocId();
+      const needsFirstPublish =
+        typeof hasBracketData === "function" &&
+        hasBracketData(payload);
       try {
         const ref = firestoreDb.collection(col).doc(doc);
+        let wrote = false;
         await withTimeout(
           firestoreDb.runTransaction(async (tx) => {
             const snap = await tx.get(ref);
             if (snap.exists) {
               const d = snap.data();
               const current = d.payload != null ? d.payload : d.data;
-              if (isStaleTournamentWrite(payload, current)) return;
+              const skipStale =
+                needsFirstPublish && current && !hasBracketData(current);
+              if (!skipStale && isStaleTournamentWrite(payload, current)) return;
             }
+            wrote = true;
             tx.set(
               ref,
               {
@@ -2146,6 +2187,11 @@
                 ...(doc.startsWith("ut_") && activeTournamentName
                   ? { name: activeTournamentName }
                   : {}),
+                ...(doc.startsWith("ut_") &&
+                !activeTournamentOwnerUid &&
+                firebaseAuth?.currentUser?.uid
+                  ? { ownerUid: firebaseAuth.currentUser.uid }
+                  : {}),
               },
               { merge: true }
             );
@@ -2153,7 +2199,10 @@
           8000,
           "Firestore no respondió al guardar"
         );
-        return true;
+        if (wrote && firebaseAuth?.currentUser?.uid) {
+          activeTournamentOwnerUid = activeTournamentOwnerUid || firebaseAuth.currentUser.uid;
+        }
+        return wrote;
       } catch (e) {
         console.warn("Firestore escritura:", e);
         return false;
@@ -2177,19 +2226,28 @@
       }
     }
 
-    async function persistToDatabase(payload) {
+    async function persistToDatabase(payload, options = {}) {
       if (isFileMode) return false;
-      if (!isAdminLoggedIn() || !canEditTournament()) return false;
+      if (!isAdminLoggedIn() || !canPublishToCloud()) return false;
       try {
         const headers = await apiAuthHeaders();
-        const res = await fetch(getApiUrl(), {
+        const forceQ = options.force ? "?force=1" : "";
+        const res = await fetch(getApiUrl() + forceQ, {
           method: "PUT",
           headers,
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error("API " + res.status);
-        return true;
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.warn("API guardar:", json.error || "API " + res.status);
+          return false;
+        }
+        if (json.stale && !options.force) {
+          return persistToDatabase(payload, { force: true });
+        }
+        return !!json.firestoreOk || json.ok === true;
       } catch (e) {
+        console.warn("API guardar:", e);
         return false;
       }
     }
@@ -2208,10 +2266,17 @@
     }
 
     async function persistRemote(payload) {
-      let okFb = false;
       let okSql = false;
-      if (isAdminLoggedIn()) okFb = await persistToFirestore(payload);
-      if (!isFileMode) okSql = await persistToDatabase(payload);
+      let okFb = false;
+      if (canPublishToCloud()) {
+        okSql = await persistToDatabase(payload);
+      }
+      if (isAdminLoggedIn() && canPublishToCloud()) {
+        okFb = await persistToFirestore(payload);
+      }
+      if (!okSql && !okFb && hasBracketData(payload) && canEditTournament() && !canPublishToCloud()) {
+        console.warn("Sin permiso de publicación: no eres el dueño de este torneo.");
+      }
       await pingSqliteBackend();
       lastRemoteSave = { okFb, okSql, at: Date.now() };
       return { okFb, okSql };
@@ -2228,10 +2293,12 @@
         if (okFb) rem.push("Firestore");
         if (okSql) rem.push("servidor");
         if (okFb || okSql) showToast("Guardado: " + rem.join(" + "));
-        else if (!isAdminLoggedIn() && window.FIREBASE_SC2_CONFIG?.enabled) {
+        else if (!canPublishToCloud() && hasBracketData(payload)) {
+          showToast("Guardado aquí. Solo el dueño puede publicar en la nube.");
+        } else if (!isAdminLoggedIn() && window.FIREBASE_SC2_CONFIG?.enabled) {
           showToast("Guardado aquí. Inicia sesión admin para Firestore.");
         } else if (isFileMode) showToast("Guardado en este navegador (Exportar JSON como copia)");
-        else showToast("Guardado en este navegador");
+        else showToast("No se publicó en la nube — pulsa Publicar en la nube");
       }
       return payload;
     }
@@ -3273,6 +3340,7 @@
       }
       activeTournamentId = newId;
       activeTournamentName = "";
+      activeTournamentOwnerUid = null;
       const url = new URL(location.href);
       if (isLegacyPrincipalTournament()) url.searchParams.delete("t");
       else url.searchParams.set("t", newId);
@@ -3282,6 +3350,7 @@
       state.teams = [];
       state.savedAt = null;
       teamIdCounter = 1;
+      await loadTournamentOwnerMeta();
       await syncFromCloud();
       if (!state.teams?.length) {
         loadFromLocalStorage();
@@ -3316,6 +3385,7 @@
         if (!res.ok) throw new Error(json.error || "No se pudo crear");
         activeTournamentId = json.id;
         activeTournamentName = json.name;
+        activeTournamentOwnerUid = firebaseAuth?.currentUser?.uid || null;
         const url = new URL(location.href);
         url.searchParams.set("t", json.id);
         history.replaceState({}, "", url);
@@ -3695,7 +3765,7 @@
       initRoundFormatsAfterDraw();
       autoByeAdvance();
 
-      const payload = getPayload();
+      const payload = getPayload({ bumpSavedAt: true });
       if (!persistLocal(payload)) {
         alert("No se pudo guardar el sorteo en este navegador. Usa Exportar JSON como copia.");
       }
@@ -4399,6 +4469,10 @@
         showToast("Inicia sesión admin para publicar en Firestore.");
         return;
       }
+      if (!canPublishToCloud()) {
+        showToast("Solo el dueño del torneo o el admin principal pueden publicar.");
+        return;
+      }
       flushSaveToRemote(false).catch((e) => showToast(e.message || "Error al publicar"));
     });
 
@@ -4593,6 +4667,7 @@
       try {
         await loadFirebaseSdk();
         initFirebaseFromConfig();
+        await loadTournamentOwnerMeta();
         await syncFromCloud();
         if (state.drawInfo?.tournamentName) activeTournamentName = state.drawInfo.tournamentName;
         else if (state.teams?.length && !isLegacyPrincipalTournament()) {

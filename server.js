@@ -166,19 +166,21 @@ async function readFirestoreTournamentPayload() {
   return readFirestoreTournamentPayloadById(FIRESTORE_DOCUMENT_ID);
 }
 
-async function writeFirestoreTournamentPayloadById(documentId, payload, extra = {}) {
+async function writeFirestoreTournamentPayloadById(documentId, payload, extra = {}, options = {}) {
   const admin = await initFirebaseAdmin();
   if (!admin) return false;
   try {
     const firestore = admin.firestore();
     const ref = firestore.collection(FIRESTORE_COLLECTION).doc(documentId);
+    let wrote = false;
     await firestore.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      if (snap.exists) {
+      if (snap.exists && !options.force) {
         const doc = snap.data();
         const current = doc.payload != null ? doc.payload : doc.data;
         if (isStaleTournamentWrite(payload, current)) return;
       }
+      wrote = true;
       tx.set(
         ref,
         {
@@ -189,7 +191,7 @@ async function writeFirestoreTournamentPayloadById(documentId, payload, extra = 
         { merge: true }
       );
     });
-    return true;
+    return wrote;
   } catch (e) {
     console.warn("Firestore torneo escritura:", e.message);
     return false;
@@ -250,6 +252,12 @@ async function verifySuperAdmin(decoded) {
   return (data.superAdminUids || []).includes(decoded.uid);
 }
 
+async function verifyEditor(decoded) {
+  const data = await getAdminRolesData();
+  if (!data) return false;
+  return (data.editorUids || []).includes(decoded.uid);
+}
+
 async function verifyCanWriteTournament(decoded, tournamentId = LEGACY_TOURNAMENT_ID) {
   if (isLegacyPrincipal(tournamentId)) {
     return verifySuperAdmin(decoded);
@@ -264,7 +272,10 @@ async function verifyCanWriteTournament(decoded, tournamentId = LEGACY_TOURNAMEN
     .doc(tournamentId)
     .get();
   if (!snap.exists) return false;
-  return snap.data()?.ownerUid === decoded.uid;
+  const ownerUid = snap.data()?.ownerUid;
+  if (ownerUid === decoded.uid) return true;
+  if (!ownerUid && (await verifyEditor(decoded))) return true;
+  return false;
 }
 
 /** Correos que pueden registrarse como admin principal (servidor, sin depender de reglas cliente). */
@@ -602,20 +613,28 @@ app.put("/api/tournaments/:id", async (req, res) => {
     return res.status(400).json({ error: "Cuerpo inválido" });
   }
   const current = await readFirestoreTournamentPayloadById(id);
-  if (isStaleTournamentWrite(payload, current?.data)) {
+  const force = req.query.force === "1" || req.query.force === "true";
+  const needsFirstPublish =
+    tournamentLib.isPubliclyListable(payload) && !tournamentLib.isPubliclyListable(current?.data);
+  if (!force && !needsFirstPublish && isStaleTournamentWrite(payload, current?.data)) {
     return res.json({
       ok: true,
       stale: true,
       updatedAt: current?.updatedAt || new Date().toISOString(),
-      firestoreOk: true,
+      firestoreOk: false,
     });
   }
   const updatedAt = new Date().toISOString();
-  const firestoreOk = await writeFirestoreTournamentPayloadById(id, payload, {
-    name: payload.tournamentName || current?.meta?.name || "Mi torneo",
-    ownerUid: current?.meta?.ownerUid || auth.decoded.uid,
-  });
-  res.json({ ok: true, updatedAt, firestoreOk });
+  const firestoreOk = await writeFirestoreTournamentPayloadById(
+    id,
+    payload,
+    {
+      name: payload.tournamentName || current?.meta?.name || "Mi torneo",
+      ownerUid: current?.meta?.ownerUid || auth.decoded.uid,
+    },
+    { force: force || needsFirstPublish }
+  );
+  res.json({ ok: true, updatedAt, firestoreOk, published: !!tournamentLib.isPubliclyListable(payload) });
 });
 
 app.delete("/api/tournaments/:id", async (req, res) => {
