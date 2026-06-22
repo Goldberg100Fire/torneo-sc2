@@ -37,11 +37,15 @@ service cloud.firestore {
       return isSuperAdmin() || isEditor();
     }
 
-    /** Primer acceso: correo bootstrap se añade a superAdminUids */
-    function isBootstrapSuperSelfRegister() {
+    /** Primer acceso: correo bootstrap puede escribir admin_roles (alta o reintento). */
+    function canBootstrapSuperWrite() {
       return isSignedIn()
         && isBootstrapSuperEmail()
-        && request.auth.uid in request.resource.data.superAdminUids
+        && request.auth.uid in request.resource.data.get('superAdminUids', []);
+    }
+
+    function isBootstrapSuperSelfRegister() {
+      return canBootstrapSuperWrite()
         && (!rolesExist()
           || !(request.auth.uid in adminRoles().data.get('superAdminUids', [])));
     }
@@ -53,19 +57,28 @@ service cloud.firestore {
 
     match /torneos_sc2/admin_roles {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && (isBootstrapSuperSelfRegister()
-          || request.auth.uid in request.resource.data.get('superAdminUids', []));
+      allow create: if canBootstrapSuperWrite()
+        || request.auth.uid in request.resource.data.get('superAdminUids', []);
       allow update: if isSuperAdmin()
-        || isBootstrapSuperSelfRegister()
+        || canBootstrapSuperWrite()
         || (isSignedIn()
           && request.auth.uid in request.resource.data.editorUids
           && !(request.auth.uid in resource.data.get('editorUids', [])));
     }
 
-    match /torneos_sc2/{other} {
+    match /torneos_sc2/{docId} {
       allow read: if true;
-      allow write: if canWriteTournament();
+      allow create: if docId.matches('ut_.*')
+        && request.auth != null
+        && request.auth.uid == request.resource.data.ownerUid;
+      allow update: if docId == 'principal' && canWriteTournament()
+        || (docId.matches('ut_.*')
+          && request.auth != null
+          && request.auth.uid == resource.data.ownerUid)
+        || (docId.matches('ut_.*') && isSuperAdmin());
+      allow delete: if docId.matches('ut_.*')
+        && request.auth != null
+        && (request.auth.uid == resource.data.ownerUid || isSuperAdmin());
     }
   }
 }

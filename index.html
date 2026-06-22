@@ -743,7 +743,9 @@
   <script src="firebase-config.local.js"></script>
   <script type="module">
     import { createTournamentLib } from "./tournament-lib.mjs";
+    import * as TournamentTenant from "./tournament-tenant.mjs";
     window.TournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
+    window.TournamentTenant = TournamentTenant;
     window.dispatchEvent(new Event("tournament-lib-ready"));
   </script>
 
@@ -766,12 +768,58 @@
     }
 
     const PUBLIC_VIEW = true;
-    const STORAGE_KEY = "sc2-tournament-v2";
     const MAX_PLAYERS_PER_TEAM = 6;
     const BO_OPTIONS = [3, 5, 7, 9];
-    const API = "/api/tournament";
     const isFileMode = location.protocol === "file:";
     let firestoreUnsub = null;
+
+    let activeTournamentId =
+      window.TournamentTenant?.resolveTournamentIdFromSearch(location.search) || "principal";
+
+    function isLegacyPrincipalTournament() {
+      return window.TournamentTenant?.isLegacyPrincipal(activeTournamentId) ?? true;
+    }
+
+    function getStorageKey() {
+      return (
+        window.TournamentTenant?.storageKeyForTournament(activeTournamentId) ||
+        "sc2-tournament-v2"
+      );
+    }
+
+    function getApiUrl() {
+      return window.TournamentTenant?.apiPathForTournament(activeTournamentId) || "/api/tournament";
+    }
+
+    function getFirestoreDocId() {
+      if (isLegacyPrincipalTournament()) {
+        return window.FIREBASE_SC2_CONFIG?.firestoreDocumentId || "principal";
+      }
+      return activeTournamentId;
+    }
+
+    function updatePublicHeader() {
+      const name =
+        state.drawInfo?.tournamentName ||
+        state.tournamentName ||
+        (isLegacyPrincipalTournament() ? "" : activeTournamentId);
+      const hdr = document.querySelector("header h1");
+      const sub = document.querySelector("header p");
+      if (hdr) {
+        hdr.textContent = name && !isLegacyPrincipalTournament()
+          ? String(name).toUpperCase()
+          : "TORNEO STARCRAFT";
+      }
+      if (sub) {
+        sub.textContent = isLegacyPrincipalTournament()
+          ? "Equipos, jugadores y eliminatorias · actualización en vivo"
+          : "Vista pública · actualización en vivo";
+      }
+      document.title =
+        name && !isLegacyPrincipalTournament()
+          ? name + " · Torneo StarCraft"
+          : "Torneo StarCraft · Vista pública";
+    }
 
     const state = {
       teams: [],
@@ -780,6 +828,7 @@
       drawInfo: null,
       drawn: false,
       roundFormats: null,
+      tournamentName: "",
     };
 
     let teamIdCounter = 1;
@@ -968,6 +1017,7 @@
       state.drawn = !!data.drawn;
       state.roundFormats = data.roundFormats || null;
       state.savedAt = data.savedAt || null;
+      state.tournamentName = data.tournamentName || data.drawInfo?.tournamentName || "";
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
       if (state.bracket) {
         if (!state.bracket.size && state.bracket.wb?.length) {
@@ -1060,11 +1110,11 @@
       el.className = "db-status" + (anyRemote ? " online" : " offline");
     }
 
-    /** Carga torneo desde API (rápido, sin esperar Firebase). */
+    /** Carga torneo desde la API del servidor (rápido, sin esperar Firebase). */
     async function loadFromServerApi() {
       if (isFileMode) return false;
       try {
-        const res = await fetch(API);
+        const res = await fetch(getApiUrl());
         if (!res.ok) return false;
         const json = await res.json();
         if (!json.data) return false;
@@ -1091,7 +1141,7 @@
 
     function readLocalPayload() {
       try {
-        let raw = localStorage.getItem(STORAGE_KEY);
+        let raw = localStorage.getItem(getStorageKey());
         if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
         return raw ? JSON.parse(raw) : null;
       } catch (e) {
@@ -1103,7 +1153,7 @@
       if (!merged) return false;
       applyPayload(merged);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        localStorage.setItem(getStorageKey(), JSON.stringify(merged));
       } catch (e) {
         console.warn("localStorage:", e);
       }
@@ -1117,7 +1167,7 @@
       if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
         const cfg = window.FIREBASE_SC2_CONFIG;
         try {
-          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
           const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
           if (snap.exists) {
             const d = snap.data();
@@ -1130,7 +1180,7 @@
 
       if (!isFileMode) {
         try {
-          const res = await fetch(API);
+          const res = await fetch(getApiUrl());
           if (res.ok) {
             const json = await res.json();
             if (json.data) fromServer = json.data;
@@ -1157,7 +1207,7 @@
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const col = cfg.firestoreCollection;
-      const doc = cfg.firestoreDocumentId;
+      const doc = getFirestoreDocId();
       try {
         const ref = firestoreDb.collection(col).doc(doc);
         await withTimeout(
@@ -1181,7 +1231,7 @@
     async function loadFromDatabase() {
       if (isFileMode) return false;
       try {
-        const res = await fetch(API);
+        const res = await fetch(getApiUrl());
         if (!res.ok) throw new Error("API " + res.status);
         const json = await res.json();
         if (!json.data) return false;
@@ -1195,7 +1245,7 @@
     async function persistToDatabase(payload) {
       if (isFileMode) return false;
       try {
-        const res = await fetch(API, {
+        const res = await fetch(getApiUrl(), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1209,7 +1259,7 @@
 
     function loadFromLocalStorage() {
       try {
-        let raw = localStorage.getItem(STORAGE_KEY);
+        let raw = localStorage.getItem(getStorageKey());
         if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
         if (!raw) return false;
         applyPayload(JSON.parse(raw));
@@ -1223,7 +1273,7 @@
     function save(silent) {
       if (PUBLIC_VIEW) return;
       const payload = getPayload();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(getStorageKey(), JSON.stringify(payload));
 
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
@@ -1245,7 +1295,7 @@
     async function clearDatabase() {
       if (isFileMode) return;
       try {
-        await fetch(API, { method: "DELETE" });
+        await fetch(getApiUrl(), { method: "DELETE" });
       } catch (e) {
         /* servidor apagado */
       }
@@ -2369,7 +2419,7 @@
     function subscribePublicFirestore() {
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return;
       const cfg = window.FIREBASE_SC2_CONFIG;
-      const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+      const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
       if (firestoreUnsub) firestoreUnsub();
       firestoreUnsub = ref.onSnapshot(
         (snap) => {
@@ -2379,7 +2429,7 @@
             if (payload) {
               let local = null;
               try {
-                const raw = localStorage.getItem(STORAGE_KEY);
+                const raw = localStorage.getItem(getStorageKey());
                 if (raw) local = JSON.parse(raw);
               } catch (e) {
                 /* ignore */
@@ -2405,7 +2455,7 @@
       if (!firebaseReady) return false;
       try {
         const cfg = window.FIREBASE_SC2_CONFIG;
-        const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+        const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
         await withTimeout(ref.get(), 6000, "Firestore no respondió");
         return true;
       } catch (e) {
@@ -2427,6 +2477,7 @@
       renderTeams();
       renderBracket();
       updateStorageBadge();
+      updatePublicHeader();
     }
 
     async function syncFromCloud() {
@@ -2457,7 +2508,7 @@
     async function pollServerTournament() {
       if (isFileMode || PUBLIC_VIEW === false) return;
       try {
-        const res = await fetch(API);
+        const res = await fetch(getApiUrl());
         if (!res.ok) return;
         const json = await res.json();
         if (!json.data) return;
@@ -2546,7 +2597,7 @@
     }
 
     async function bootPublicPage() {
-      for (let i = 0; i < 200 && !window.TournamentLib; i++) {
+      for (let i = 0; i < 200 && (!window.TournamentLib || !window.TournamentTenant); i++) {
         await new Promise((r) => setTimeout(r, 25));
       }
       if (!bindTournamentLib()) {

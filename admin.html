@@ -803,6 +803,70 @@
       font-size: 1.2rem;
     }
 
+    .tournament-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: center;
+      padding: 0.65rem 1rem;
+      background: rgba(0, 212, 255, 0.06);
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .tournament-bar-label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .tournament-bar-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .draw-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+    }
+
+    .draw-modal {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      max-width: 640px;
+      width: 100%;
+      max-height: 90vh;
+      overflow: auto;
+      padding: 1.25rem;
+    }
+
+    .draw-modal h3 {
+      font-family: "Orbitron", sans-serif;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .pair-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .pair-row select { width: 100%; min-width: 0; }
+
     @media (max-width: 600px) {
       .toolbar { flex-direction: column; align-items: stretch; }
     }
@@ -839,6 +903,16 @@
     <button type="button" class="btn-ghost" id="btnLogout" style="margin-left: 0.5rem;">Cerrar sesión</button>
   </div>
 
+  <div class="tournament-bar" id="tournamentBar">
+    <label class="tournament-bar-label">
+      Torneo activo
+      <select id="tournamentSelect" title="Cambiar torneo"></select>
+    </label>
+    <button type="button" class="btn-ghost" id="btnNewTournament">+ Crear mi torneo</button>
+    <a class="btn-ghost" id="publicTournamentLink" href="index.html" target="_blank" rel="noopener">Vista pública</a>
+    <span class="tournament-bar-hint" id="tournamentBarHint"></span>
+  </div>
+
   <section id="staffSection" class="staff-panel" hidden>
     <h3>EQUIPO ADMINISTRADOR</h3>
     <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
@@ -866,7 +940,7 @@
         <strong>Otra cantidad:</strong> preliminar hasta la potencia más cercana; perdedores van a repechaje preliminar.
         El sorteo se guarda automáticamente en el navegador.
       </p>
-      <button type="button" class="btn-gold" id="btnDraw">Sortear cruces</button>
+      <button type="button" class="btn-gold" id="btnDraw">Sortear / emparejar</button>
       <button type="button" class="btn-primary" id="btnSave">Guardar</button>
       <button type="button" class="btn-ghost" id="btnExport">Exportar JSON</button>
       <button type="button" class="btn-ghost" id="btnForceCloud" title="Descartar copia local antigua y cargar Firestore/servidor">Sincronizar desde nube</button>
@@ -922,8 +996,10 @@
   <script type="module">
     import { createTournamentLib } from "./tournament-lib.mjs";
     import * as BracketEngine from "./bracket-engine.mjs";
+    import * as TournamentTenant from "./tournament-tenant.mjs";
     window.TournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
     window.BracketEngine = BracketEngine;
+    window.TournamentTenant = TournamentTenant;
     window.dispatchEvent(new Event("tournament-lib-ready"));
   </script>
 
@@ -949,10 +1025,34 @@
       return true;
     }
 
-    const STORAGE_KEY = "sc2-tournament-v2";
-    const MAX_PLAYERS_PER_TEAM = 6;
+    let activeTournamentId =
+      window.TournamentTenant?.resolveTournamentIdFromSearch(location.search) || "principal";
+    let activeTournamentName = "";
+
+    function isLegacyPrincipalTournament() {
+      return window.TournamentTenant?.isLegacyPrincipal(activeTournamentId) ?? true;
+    }
+
+    function getStorageKey() {
+      return (
+        window.TournamentTenant?.storageKeyForTournament(activeTournamentId) ||
+        "sc2-tournament-v2"
+      );
+    }
+
+    function getApiUrl() {
+      return window.TournamentTenant?.apiPathForTournament(activeTournamentId) || "/api/tournament";
+    }
+
+    function getFirestoreDocId() {
+      if (isLegacyPrincipalTournament()) {
+        return window.FIREBASE_SC2_CONFIG?.firestoreDocumentId || "principal";
+      }
+      return activeTournamentId;
+    }
+
     const BO_OPTIONS = [3, 5, 7, 9];
-    const API = "/api/tournament";
+    const MAX_PLAYERS_PER_TEAM = 6;
     /** true = abriste index.html con doble clic (sin servidor Node) */
     const isFileMode = location.protocol === "file:";
 
@@ -1035,6 +1135,9 @@
       } else if (state.savedAt) {
         payload.savedAt = state.savedAt;
       }
+      if (!isLegacyPrincipalTournament() && activeTournamentName) {
+        payload.tournamentName = activeTournamentName;
+      }
       return payload;
     }
 
@@ -1049,7 +1152,7 @@
 
     function readLocalPayload() {
       try {
-        let raw = localStorage.getItem(STORAGE_KEY);
+        let raw = localStorage.getItem(getStorageKey());
         if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
         return raw ? JSON.parse(raw) : null;
       } catch (e) {
@@ -1060,7 +1163,7 @@
     function persistLocal(payload) {
       if (payload?.savedAt) state.savedAt = payload.savedAt;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(getStorageKey(), JSON.stringify(payload));
         return true;
       } catch (e) {
         console.error("localStorage:", e);
@@ -1079,6 +1182,7 @@
       state.roundFormats = data.roundFormats || null;
       state.savedAt = data.savedAt || state.savedAt || null;
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
+      if (data.tournamentName) activeTournamentName = data.tournamentName;
       if (state.bracket) {
         if (!state.bracket.size && state.bracket.wb?.length) {
           state.bracket.size = Math.pow(2, state.bracket.wb.length);
@@ -1087,7 +1191,7 @@
       refreshRoundFormatsFromState();
       reconcileBracketMatches();
       sanitizeAllMatchFeeds();
-      if (state.bracket && window.BracketEngine) {
+      if (state.bracket && window.BracketEngine && !isLegacyPrincipalTournament()) {
         let fixSeq = state.bracket.matches?.length || 0;
         const repair = window.BracketEngine.repairOrphanPrelimLbEntries(
           state.bracket,
@@ -1186,7 +1290,7 @@
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const col = cfg.firestoreCollection;
-      const doc = cfg.firestoreDocumentId;
+      const doc = getFirestoreDocId();
       try {
         const ref = firestoreDb.collection(col).doc(doc);
         const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
@@ -1195,7 +1299,7 @@
         const payload = d.payload != null ? d.payload : d.data;
         if (!payload || typeof payload !== "object") return false;
         applyPayload(payload);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(getStorageKey(), JSON.stringify(payload));
         return true;
       } catch (e) {
         console.warn("Firestore lectura:", e);
@@ -1309,6 +1413,7 @@
         await loadAdminRolesDoc();
       } catch (e) {
         console.warn("roles:", e);
+        adminRolesDoc = null;
       }
 
       if (adminRolesDoc) {
@@ -1318,23 +1423,36 @@
       }
 
       if (bootstrapSuper) {
+        let bootstrapDetail = "";
+
+        const viaServer = await serverBootstrapRoles();
+        if (viaServer.ok) {
+          await loadAdminRolesDoc();
+          if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
+        } else if (viaServer.error) {
+          bootstrapDetail = " Servidor: " + viaServer.error;
+        }
+
         try {
           await ensureBootstrapSuperAdmin(user);
         } catch (e) {
           console.warn("No se pudo escribir admin_roles en Firestore:", e);
+          const code = e?.code || "";
+          if (code === "permission-denied") {
+            bootstrapDetail +=
+              " Firestore bloqueó el alta (publica firestore.rules en Firebase Console).";
+          } else if (e?.message) {
+            bootstrapDetail += " " + e.message;
+          }
         }
         await loadAdminRolesDoc();
         if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
 
-        const viaServer = await serverBootstrapRoles();
-        if (viaServer) {
-          await loadAdminRolesDoc();
-          if ((adminRolesDoc?.superAdminUids || []).includes(user.uid)) return "super";
-        }
-
         console.warn(
-          "Bootstrap admin: contraseña OK pero no se pudo registrar en admin_roles."
+          "Bootstrap admin: contraseña OK pero no se pudo registrar en admin_roles.",
+          bootstrapDetail
         );
+        resolveAdminRole.lastBootstrapDetail = bootstrapDetail;
         return null;
       }
 
@@ -1382,9 +1500,11 @@
 
     /** Registra admin principal vía servidor (Admin SDK) si Firestore cliente falla. */
     async function serverBootstrapRoles() {
-      if (location.protocol === "file:") return false;
+      if (location.protocol === "file:") {
+        return { ok: false, error: "Abre https://torneo-sc2.onrender.com/admin.html (no archivo local)." };
+      }
       const token = await getIdToken();
-      if (!token) return false;
+      if (!token) return { ok: false, error: "No se obtuvo token de sesión." };
       try {
         const res = await fetch("/api/admin/bootstrap-roles", {
           method: "POST",
@@ -1395,13 +1515,14 @@
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          console.warn("bootstrap-roles:", json.error || res.status);
-          return false;
+          const err = json.error || "HTTP " + res.status;
+          console.warn("bootstrap-roles:", err);
+          return { ok: false, error: err };
         }
-        return !!json.ok;
+        return { ok: !!json.ok };
       } catch (e) {
         console.warn("bootstrap-roles:", e);
-        return false;
+        return { ok: false, error: e.message || String(e) };
       }
     }
 
@@ -1515,7 +1636,7 @@
       if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return false;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const col = cfg.firestoreCollection;
-      const doc = cfg.firestoreDocumentId;
+      const doc = getFirestoreDocId();
       try {
         const ref = firestoreDb.collection(col).doc(doc);
         await withTimeout(
@@ -1548,12 +1669,12 @@
     async function loadFromDatabase() {
       if (isFileMode) return false;
       try {
-        const res = await fetch(API);
+        const res = await fetch(getApiUrl());
         if (!res.ok) throw new Error("API " + res.status);
         const json = await res.json();
         if (json.data) {
           applyPayload(json.data);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.data));
+          localStorage.setItem(getStorageKey(), JSON.stringify(json.data));
           return true;
         }
         return false;
@@ -1567,7 +1688,7 @@
       if (!isAdminLoggedIn() || !canEditTournament()) return false;
       try {
         const headers = await apiAuthHeaders();
-        const res = await fetch(API, {
+        const res = await fetch(getApiUrl(), {
           method: "PUT",
           headers,
           body: JSON.stringify(payload),
@@ -1581,7 +1702,7 @@
 
     function loadFromLocalStorage() {
       try {
-        let raw = localStorage.getItem(STORAGE_KEY);
+        let raw = localStorage.getItem(getStorageKey());
         if (!raw) raw = localStorage.getItem("sc2-tournament-v1");
         if (!raw) return false;
         applyPayload(JSON.parse(raw));
@@ -1647,7 +1768,7 @@
       if (!isSuperAdmin()) return;
       try {
         const headers = await apiAuthHeaders();
-        await fetch(API, { method: "DELETE", headers });
+        await fetch(getApiUrl(), { method: "DELETE", headers });
       } catch (e) {
         /* servidor apagado */
       }
@@ -2137,6 +2258,20 @@
       return state.preliminary.rounds.every((round) => round.every((m) => m.confirmed));
     }
 
+    function buildPrelimRoundFromPairs(pairs, roundIndex) {
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `pre-${roundIndex}-${seq++}`;
+      pairs.forEach((pair, i) => {
+        const m = makeMatch(mkId, "preliminary", roundIndex, i);
+        m.teamA = pair[0];
+        m.teamB = pair[1];
+        m.bestOf = 5;
+        matches.push(m);
+      });
+      return matches;
+    }
+
     function buildPrelimRound(teamIds, roundIndex) {
       const matches = [];
       let seq = 0;
@@ -2214,16 +2349,21 @@
       return result;
     }
 
-    function buildSlotsForMain(directIds, prelimMatches) {
+    function buildSlotsForMain(directIds, prelimMatches, randomOrder = true) {
       const slots = [];
       directIds.forEach((id) => slots.push({ type: "team", id }));
       prelimMatches.forEach((m) => slots.push({ type: "prelim", match: m }));
-      return shuffle(slots);
+      return randomOrder ? shuffle(slots) : slots;
     }
 
-    function buildTournamentDraw(teamIds) {
+    function buildTournamentDraw(teamIds, options = {}) {
       const n = teamIds.length;
-      const order = shuffle([...teamIds]);
+      const randomOrder = options.randomOrder !== false;
+      const order = options.teamOrder?.length
+        ? options.teamOrder.filter((id) => teamIds.includes(id))
+        : randomOrder
+          ? shuffle([...teamIds])
+          : [...teamIds];
       const drawInfo = {
         drawnAt: new Date().toISOString(),
         teamOrder: order,
@@ -2249,7 +2389,9 @@
       const directCount = target - excess;
       const directIds = order.slice(0, directCount);
       const prelimPool = order.slice(directCount);
-      const winnerRound = buildPrelimRound(prelimPool, 0);
+      const winnerRound = options.prelimPairs?.length
+        ? buildPrelimRoundFromPairs(options.prelimPairs, 0)
+        : buildPrelimRound(prelimPool, 0);
       const loserRounds = [];
 
       if (winnerRound.length > 1) {
@@ -2262,7 +2404,7 @@
         }
       }
 
-      const slots = buildSlotsForMain(directIds, winnerRound);
+      const slots = buildSlotsForMain(directIds, winnerRound, options.randomSlots !== false);
       const bracket = buildMainBracketFromSlots(slots, target);
 
       if (winnerRound.length === 1) {
@@ -2424,7 +2566,307 @@
       }
     }
 
-    async function drawBracket() {
+    function calcDrawStructure(teamCount) {
+      if (BRACKET_SIZES.includes(teamCount)) {
+        return { mode: "direct", targetSize: teamCount, pairCount: teamCount / 2 };
+      }
+      const target = getTargetSize(teamCount);
+      const excess = teamCount - target;
+      return {
+        mode: "preliminary",
+        targetSize: target,
+        excess,
+        prelimPairCount: Math.ceil(excess / 2),
+        directCount: target - excess,
+      };
+    }
+
+    function updateTournamentBar() {
+      const hint = document.getElementById("tournamentBarHint");
+      const link = document.getElementById("publicTournamentLink");
+      const sel = document.getElementById("tournamentSelect");
+      if (sel && sel.value !== activeTournamentId) sel.value = activeTournamentId;
+      if (hint) {
+        hint.textContent = isLegacyPrincipalTournament()
+          ? "Torneo público en curso — no se altera al crear otros torneos."
+          : "Tu torneo privado (solo tú puedes editarlo).";
+      }
+      if (link && window.TournamentTenant) {
+        link.href = window.TournamentTenant.publicViewUrl(activeTournamentId);
+      }
+      const hdr = document.querySelector("header h1");
+      if (hdr && activeTournamentName && !isLegacyPrincipalTournament()) {
+        hdr.textContent = activeTournamentName.toUpperCase();
+      } else if (hdr) {
+        hdr.textContent = "TORNEO STARCRAFT";
+      }
+    }
+
+    async function refreshTournamentSelector() {
+      const sel = document.getElementById("tournamentSelect");
+      if (!sel) return;
+      const prev = activeTournamentId;
+      sel.innerHTML = "";
+      const optP = document.createElement("option");
+      optP.value = "principal";
+      optP.textContent = "Torneo principal (público)";
+      sel.appendChild(optP);
+      if (isAdminLoggedIn()) {
+        try {
+          const token = await getIdToken();
+          const res = await fetch("/api/tournaments", {
+            headers: { Authorization: "Bearer " + token },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            (json.tournaments || []).forEach((t) => {
+              const o = document.createElement("option");
+              o.value = t.id;
+              o.textContent = (t.name || t.id) + (t.drawn ? " · en curso" : "");
+              sel.appendChild(o);
+            });
+          }
+        } catch (e) {
+          console.warn("lista torneos:", e);
+        }
+      }
+      sel.value = prev;
+      updateTournamentBar();
+    }
+
+    async function switchActiveTournament(newId) {
+      if (!newId || newId === activeTournamentId) return;
+      activeTournamentId = newId;
+      activeTournamentName = "";
+      const url = new URL(location.href);
+      if (isLegacyPrincipalTournament()) url.searchParams.delete("t");
+      else url.searchParams.set("t", newId);
+      history.replaceState({}, "", url);
+      adminAppStarted = false;
+      clearBracketState();
+      state.teams = [];
+      state.savedAt = null;
+      teamIdCounter = 1;
+      await syncFromCloud();
+      if (!state.teams?.length) {
+        loadFromLocalStorage();
+        ensureDefaultTeams();
+      }
+      if (state.drawInfo?.tournamentName) activeTournamentName = state.drawInfo.tournamentName;
+      renderAll();
+      updateTournamentBar();
+    }
+
+    async function createUserTournament() {
+      if (!isAdminLoggedIn()) {
+        alert("Inicia sesión para crear tu torneo.");
+        return;
+      }
+      const name = prompt(
+        "Nombre de tu torneo:",
+        "Mi torneo " + new Date().toLocaleDateString("es")
+      );
+      if (!name?.trim()) return;
+      try {
+        const token = await getIdToken();
+        const res = await fetch("/api/tournaments", {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "No se pudo crear");
+        activeTournamentId = json.id;
+        activeTournamentName = json.name;
+        const url = new URL(location.href);
+        url.searchParams.set("t", json.id);
+        history.replaceState({}, "", url);
+        const empty = window.TournamentTenant?.emptyTournamentPayload() || {
+          teams: [],
+          drawn: false,
+        };
+        empty.tournamentName = json.name;
+        empty.teams = [createTeam(), createTeam()];
+        empty.teamIdCounter = 3;
+        applyPayload(empty);
+        teamIdCounter = 3;
+        persistLocal(empty);
+        await refreshTournamentSelector();
+        document.getElementById("tournamentSelect").value = json.id;
+        renderAll();
+        showToast("Torneo creado. Empareja o sortea cuando quieras.");
+      } catch (e) {
+        showToast(e.message || "Error al crear torneo");
+      }
+    }
+
+    function openDrawModeDialog() {
+      syncTeamsFromDOM();
+      const valid = state.teams.filter((t) => t.name.trim());
+      if (valid.length < 2) {
+        alert("Necesitas al menos 2 equipos con nombre.");
+        return;
+      }
+      const backdrop = document.createElement("div");
+      backdrop.className = "draw-modal-backdrop";
+      const modal = document.createElement("div");
+      modal.className = "draw-modal";
+      const title = document.createElement("h3");
+      title.textContent = "Generar cruces";
+      const intro = document.createElement("p");
+      intro.style.color = "var(--muted)";
+      intro.style.marginBottom = "1rem";
+      intro.textContent =
+        "Sorteo aleatorio o empareja manualmente (winners y preliminares). El repechaje se calcula automáticamente.";
+      const row = document.createElement("div");
+      row.style.marginTop = "1rem";
+      const btnRandom = document.createElement("button");
+      btnRandom.type = "button";
+      btnRandom.className = "btn-gold";
+      btnRandom.textContent = "Sorteo aleatorio";
+      btnRandom.addEventListener("click", () => {
+        backdrop.remove();
+        drawBracket();
+      });
+      const btnManual = document.createElement("button");
+      btnManual.type = "button";
+      btnManual.className = "btn-primary";
+      btnManual.style.marginLeft = "0.5rem";
+      btnManual.addEventListener("click", () => {
+        backdrop.remove();
+        openManualPairingDialog(valid);
+      });
+      btnManual.textContent = "Emparejar manualmente";
+      row.append(btnRandom, btnManual);
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn-ghost";
+      cancel.style.marginTop = "1rem";
+      cancel.textContent = "Cancelar";
+      cancel.addEventListener("click", () => backdrop.remove());
+      modal.append(title, intro, row, cancel);
+      backdrop.appendChild(modal);
+      backdrop.addEventListener("click", (e) => {
+        if (e.target === backdrop) backdrop.remove();
+      });
+      document.body.appendChild(backdrop);
+    }
+
+    function teamSelectOptions(selectedId, pool, exclude) {
+      const sel = document.createElement("select");
+      pool.forEach((t) => {
+        if (exclude.has(t.id) && t.id !== selectedId) return;
+        const o = document.createElement("option");
+        o.value = t.id;
+        o.textContent = t.name.trim() || t.id;
+        if (t.id === selectedId) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+
+    function openManualPairingDialog(validTeams) {
+      const structure = calcDrawStructure(validTeams.length);
+      const backdrop = document.createElement("div");
+      backdrop.className = "draw-modal-backdrop";
+      const modal = document.createElement("div");
+      modal.className = "draw-modal";
+      const title = document.createElement("h3");
+      title.textContent = "Emparejar cruces";
+      modal.appendChild(title);
+      const rows = [];
+      const used = new Set();
+
+      if (structure.mode === "direct") {
+        const p = document.createElement("p");
+        p.style.color = "var(--muted)";
+        p.style.marginBottom = "0.75rem";
+        p.textContent = "Winners R1 — elige rivales (repechaje se arma solo).";
+        modal.appendChild(p);
+        const shuffled = shuffle([...validTeams]);
+        for (let i = 0; i < structure.pairCount; i++) {
+          const row = document.createElement("div");
+          row.className = "pair-row";
+          const a = shuffled[i * 2]?.id;
+          const b = shuffled[i * 2 + 1]?.id;
+          const selA = teamSelectOptions(a, validTeams, used);
+          const selB = teamSelectOptions(b, validTeams, used);
+          row.append(selA, document.createTextNode("vs"), selB);
+          modal.appendChild(row);
+          rows.push({ selA, selB });
+        }
+      } else {
+        const p = document.createElement("p");
+        p.style.color = "var(--muted)";
+        p.style.marginBottom = "0.75rem";
+        p.textContent =
+          "Preliminar winners (y repechaje prelim si aplica). Los clasificados al cuadro de " +
+          structure.targetSize +
+          " se ordenan como los elijas abajo.";
+        modal.appendChild(p);
+        const prelimTeams = shuffle(validTeams).slice(structure.directCount);
+        for (let i = 0; i < structure.prelimPairCount; i++) {
+          const row = document.createElement("div");
+          row.className = "pair-row";
+          const a = prelimTeams[i * 2]?.id;
+          const b = prelimTeams[i * 2 + 1]?.id;
+          const selA = teamSelectOptions(a, prelimTeams, used);
+          const selB = teamSelectOptions(b, prelimTeams, used);
+          row.append(selA, document.createTextNode("vs"), selB);
+          modal.appendChild(row);
+          rows.push({ selA, selB, prelim: true });
+        }
+      }
+
+      const confirm = document.createElement("button");
+      confirm.type = "button";
+      confirm.className = "btn-gold";
+      confirm.style.marginTop = "1rem";
+      confirm.textContent = "Confirmar emparejamientos";
+      confirm.addEventListener("click", () => {
+        const options = { randomOrder: false, randomSlots: false };
+        const picked = [];
+        rows.forEach(({ selA, selB }) => {
+          picked.push(selA.value, selB.value);
+        });
+        if (new Set(picked).size !== picked.length) {
+          alert("Cada equipo solo puede aparecer en un cruce.");
+          return;
+        }
+        if (structure.mode === "direct") {
+          const order = [];
+          rows.forEach(({ selA, selB }) => {
+            order.push(selA.value, selB.value);
+          });
+          options.teamOrder = order;
+        } else {
+          const pairs = rows.map(({ selA, selB }) => [selA.value, selB.value]);
+          options.prelimPairs = pairs;
+          const paired = new Set(pairs.flat());
+          const direct = validTeams
+            .filter((t) => !paired.has(t.id))
+            .slice(0, structure.directCount)
+            .map((t) => t.id);
+          options.teamOrder = [...direct, ...paired];
+        }
+        backdrop.remove();
+        drawBracket(options);
+      });
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn-ghost";
+      cancel.style.marginLeft = "0.5rem";
+      cancel.textContent = "Cancelar";
+      cancel.addEventListener("click", () => backdrop.remove());
+      modal.append(confirm, cancel);
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+    }
+
+    async function drawBracket(drawOptions = {}) {
       syncTeamsFromDOM();
       const valid = state.teams.filter((t) => t.name.trim());
       if (valid.length < 2) {
@@ -2432,7 +2874,7 @@
         return;
       }
 
-      const built = buildTournamentDraw(valid.map((t) => t.id));
+      const built = buildTournamentDraw(valid.map((t) => t.id), drawOptions);
       if (built.error) {
         alert(built.error);
         return;
@@ -2442,6 +2884,9 @@
       state.bracket = built.bracket;
       state.drawInfo = built.drawInfo;
       state.drawn = true;
+      if (!isLegacyPrincipalTournament() && activeTournamentName) {
+        state.drawInfo.tournamentName = activeTournamentName;
+      }
       initRoundFormatsAfterDraw();
       autoByeAdvance();
 
@@ -3088,7 +3533,15 @@
 
     document.getElementById("btnDraw").addEventListener("click", () => {
       if (state.drawn && !confirm("¿Volver a sortear? Se perderán los resultados del cuadro.")) return;
-      drawBracket();
+      openDrawModeDialog();
+    });
+
+    document.getElementById("tournamentSelect")?.addEventListener("change", (e) => {
+      switchActiveTournament(e.target.value).catch((err) => showToast(err.message || "Error"));
+    });
+
+    document.getElementById("btnNewTournament")?.addEventListener("click", () => {
+      createUserTournament();
     });
 
     document.getElementById("btnSave").addEventListener("click", () => {
@@ -3113,7 +3566,7 @@
 
     document.getElementById("btnReset").addEventListener("click", async () => {
       if (!confirm("¿Borrar todo el torneo (equipos y cuadro)?")) return;
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(getStorageKey());
       await clearDatabase();
       state.teams = [createTeam(), createTeam()];
       clearBracketState();
@@ -3128,7 +3581,7 @@
       if (!firebaseReady) return false;
       try {
         const cfg = window.FIREBASE_SC2_CONFIG;
-        const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+        const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
         await withTimeout(ref.get(), 6000, "Firestore no respondió");
         return true;
       } catch (e) {
@@ -3159,7 +3612,7 @@
       if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
         try {
           const cfg = window.FIREBASE_SC2_CONFIG;
-          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(cfg.firestoreDocumentId);
+          const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
           const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió");
           if (snap.exists) {
             const d = snap.data();
@@ -3172,7 +3625,7 @@
 
       if (!isFileMode) {
         try {
-          const res = await fetch(API);
+          const res = await fetch(getApiUrl());
           if (res.ok) {
             const json = await res.json();
             if (json.data) fromServer = json.data;
@@ -3293,6 +3746,11 @@
         await loadFirebaseSdk();
         initFirebaseFromConfig();
         await syncFromCloud();
+        if (state.drawInfo?.tournamentName) activeTournamentName = state.drawInfo.tournamentName;
+        else if (state.teams?.length && !isLegacyPrincipalTournament()) {
+          activeTournamentName = state.drawInfo?.tournamentName || "";
+        }
+        await refreshTournamentSelector();
         if (!state.teams?.length) {
           loadFromLocalStorage();
           ensureDefaultTeams();
@@ -3365,9 +3823,11 @@
               if (!currentAdminRole) {
                 await firebaseAuth.signOut();
                 let msg = "Tu cuenta no tiene permiso en este torneo." + loginPermissionHint(user.email);
+                const detail = resolveAdminRole.lastBootstrapDetail || "";
+                if (detail) msg += detail;
                 if (isBootstrapSuperEmail(user) && location.protocol !== "file:") {
                   msg +=
-                    " Abre desde https://torneo-sc2.onrender.com/admin.html (no archivo local). Si acabas de desplegar, espera 2 min y recarga.";
+                    " Abre https://torneo-sc2.onrender.com/admin.html. Publica firestore.rules en Firebase Console → Firestore → Reglas → Publicar.";
                 }
                 errEl.textContent = msg;
                 errEl.style.color = "";
@@ -3379,6 +3839,7 @@
               app.hidden = false;
               document.getElementById("adminUserLabel").textContent = user.email;
               applyRoleUI();
+              await refreshTournamentSelector();
               await initAdminApp();
             } catch (e) {
               errEl.textContent = e.message || "Error al verificar permisos";
