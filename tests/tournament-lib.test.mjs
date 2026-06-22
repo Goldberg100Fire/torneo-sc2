@@ -23,8 +23,9 @@ function basePayload(overrides = {}) {
   };
 }
 
-test("hasBracketData requires drawn flag", () => {
-  assert.equal(hasBracketData({ bracket: { wb: [[]] } }), false);
+test("hasBracketData lists legacy brackets without explicit drawn flag", () => {
+  assert.equal(hasBracketData({ bracket: { wb: [[]] } }), true);
+  assert.equal(hasBracketData({ drawn: false, bracket: { wb: [[]] } }), false);
   assert.equal(hasBracketData(basePayload()), true);
 });
 

@@ -4,13 +4,22 @@
 export function createTournamentLib(options = {}) {
   const maxPlayersPerTeam = options.maxPlayersPerTeam ?? 6;
 
-  function hasBracketData(p) {
-    if (!p?.drawn) return false;
+  function hasBracketStructure(p) {
     return !!(
-      p.bracket?.wb?.length ||
-      p.bracket?.matches?.length ||
-      p.preliminary?.rounds?.length
+      p?.bracket?.wb?.length ||
+      p?.bracket?.matches?.length ||
+      p?.preliminary?.rounds?.length
     );
+  }
+
+  /** Cuadro visible en web pública: estructura real y no marcado como borrador. */
+  function isPubliclyListable(p) {
+    if (!p || p.drawn === false) return false;
+    return hasBracketStructure(p);
+  }
+
+  function hasBracketData(p) {
+    return isPubliclyListable(p);
   }
 
   function totalPlayersInPayload(p) {
@@ -219,6 +228,8 @@ export function createTournamentLib(options = {}) {
   }
 
   return {
+    hasBracketStructure,
+    isPubliclyListable,
     hasBracketData,
     totalPlayersInPayload,
     countConfirmedMatchesInPayload,

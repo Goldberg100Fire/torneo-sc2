@@ -995,6 +995,27 @@
       }
     }
 
+    async function loadPrincipalHubFallback() {
+      if (isFileMode) return null;
+      try {
+        const res = await fetch("/api/tournament");
+        if (!res.ok) return null;
+        const json = await res.json();
+        const payload = json.data;
+        if (!hasBracketData(payload)) return null;
+        return {
+          id: "principal",
+          name: payload.tournamentName || "Torneo principal",
+          drawn: true,
+          teamCount: payload?.teams?.length || 0,
+          updatedAt: payload?.savedAt || json.updatedAt || null,
+        };
+      } catch (e) {
+        console.warn("hub principal API:", e);
+        return null;
+      }
+    }
+
     async function loadPublicHubList() {
       const empty = document.getElementById("hubEmpty");
       let fromApi = [];
@@ -1029,6 +1050,10 @@
       [...fromApi, ...fromFs].forEach((t) => {
         if (t?.id) byId.set(t.id, t);
       });
+      if (!byId.has("principal")) {
+        const principal = await loadPrincipalHubFallback();
+        if (principal) byId.set("principal", principal);
+      }
       publicHubTournaments = [...byId.values()].sort(
         (a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0)
       );
@@ -1277,7 +1302,7 @@
       state.bracket = data.bracket || null;
       state.preliminary = data.preliminary || null;
       state.drawInfo = data.drawInfo || null;
-      state.drawn = !!data.drawn;
+      state.drawn = hasBracketData(data) || !!data.drawn;
       state.roundFormats = data.roundFormats || null;
       state.savedAt = data.savedAt || null;
       state.tournamentName = data.tournamentName || data.drawInfo?.tournamentName || "";
@@ -2628,7 +2653,7 @@
       const section = document.getElementById("bracketSection");
       const empty = document.getElementById("emptyBracket");
 
-      if (!state.drawn || !state.bracket) {
+      if (!hasBracketData(state)) {
         section.hidden = true;
         empty.hidden = false;
         if (PUBLIC_VIEW) {

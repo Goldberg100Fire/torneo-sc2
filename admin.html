@@ -1325,7 +1325,7 @@
       state.bracket = data.bracket || null;
       state.preliminary = data.preliminary || null;
       state.drawInfo = data.drawInfo || null;
-      state.drawn = !!data.drawn;
+      state.drawn = window.TournamentLib?.hasBracketData(data) || !!data.drawn;
       state.roundFormats = data.roundFormats || null;
       state.savedAt = data.savedAt || state.savedAt || null;
       if (data.teamIdCounter) teamIdCounter = data.teamIdCounter;
@@ -2947,8 +2947,8 @@
       const err = validateScore(match, scoreA, scoreB, a, b);
       if (err) return err;
 
-      const playedAt = dateTimeLocalToIso(playedAtLocal);
-      if (!playedAt) return "Indica fecha y hora del encuentro";
+      const playedAt = dateTimeLocalToIso(playedAtLocal) || match.scheduledAt;
+      if (!playedAt) return "Indica la fecha y hora del encuentro antes de confirmar";
 
       const need = winsNeeded(match);
       match.scoreA = scoreA;
@@ -3675,7 +3675,6 @@
       teamsEl.append(teamRow(a, "A"), teamRow(b, "B"));
       card.appendChild(teamsEl);
       appendMatchDatetimeBlock(card, match);
-      appendScheduleEditor(card, match);
 
       if (isGrandWithAdvantage(match) && a && b && !match.confirmed) {
         const tag = document.createElement("span");
@@ -3771,7 +3770,7 @@
 
       const dtLabel = document.createElement("label");
       dtLabel.className = "datetime-label";
-      dtLabel.textContent = "Fecha y hora del encuentro";
+      dtLabel.textContent = "Fecha y hora del encuentro (visible en la web pública)";
       const inpDt = document.createElement("input");
       inpDt.type = "datetime-local";
       inpDt.value = isoToDateTimeLocalValue(match.scheduledAt) || isoToDateTimeLocal(match.playedAt);
@@ -3813,6 +3812,8 @@
           errEl.textContent = "Introduce ambos marcadores";
           return;
         }
+        const scheduledIso = dateTimeLocalToIso(inpDt.value);
+        if (scheduledIso) match.scheduledAt = scheduledIso;
         const err = confirmMatch(match.id, sa, sb, inpDt.value);
         if (err) errEl.textContent = err;
         else errEl.textContent = "";

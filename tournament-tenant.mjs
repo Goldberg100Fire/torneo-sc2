@@ -37,7 +37,7 @@ export function resolveTournamentIdFromSearch(search = "", options = {}) {
 }
 
 export function isTournamentPublished(payload) {
-  if (!payload?.drawn) return false;
+  if (!payload || payload.drawn === false) return false;
   return !!(
     payload.bracket?.wb?.length ||
     payload.bracket?.matches?.length ||

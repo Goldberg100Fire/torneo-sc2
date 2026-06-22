@@ -45,8 +45,12 @@ describe("tournament-tenant", () => {
       isTournamentPublished({ drawn: true, bracket: { wb: [[]] } }),
       true
     );
+    assert.equal(
+      isTournamentPublished({ bracket: { wb: [[]] } }),
+      true
+    );
     assert.equal(isTournamentPublished({ drawn: true }), false);
-    assert.equal(isTournamentPublished({ drawn: false }), false);
+    assert.equal(isTournamentPublished({ drawn: false, bracket: { wb: [[]] } }), false);
     assert.equal(isTournamentPublished(null), false);
   });
 
