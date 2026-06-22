@@ -8,6 +8,7 @@ const {
   payloadScore,
   mergePayload,
   resolveAuthoritativePayload,
+  resolvePublicPayload,
   rosterSignature,
   feedBlocksSide,
 } = lib;
@@ -147,6 +148,21 @@ test("resolveAuthoritativePayload prefers cloud when local savedAt is newer but 
   assert.equal(rosterSignature(merged), rosterSignature(cloud));
   assert.equal(merged.teams[0].players[0], "Jugador actual");
   assert.equal(merged.bracket.matches[0].scoreB, 1);
+});
+
+test("resolvePublicPayload prefers cloud bracket over stale local cache", () => {
+  const local = {
+    drawn: false,
+    teams: [{ id: "t1", name: "Local", players: [] }],
+    savedAt: "2026-05-26T12:00:00.000Z",
+  };
+  const cloud = basePayload({
+    savedAt: "2026-05-20T20:00:00.000Z",
+    teams: [{ id: "t1", name: "Nube", players: ["p1"] }],
+  });
+  const merged = resolvePublicPayload(local, cloud);
+  assert.equal(hasBracketData(merged), true);
+  assert.equal(merged.teams[0].name, "Nube");
 });
 
 test("feedBlocksSide ignores stale feed when direct team is set", () => {

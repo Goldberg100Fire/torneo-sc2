@@ -531,75 +531,134 @@
 
     .tournament-hub {
       margin-bottom: 2rem;
-      padding: 1.25rem;
-      background: var(--panel);
-      border: 1px solid var(--panel-border);
-      border-radius: 8px;
+      padding: 0;
+      background: transparent;
+      border: none;
     }
 
-    .tournament-hub h2 {
+    .hub-hero {
+      text-align: center;
+      margin-bottom: 1.75rem;
+      padding: 1.5rem 1rem 0;
+    }
+
+    .hub-hero h2 {
       font-family: "Orbitron", sans-serif;
       color: var(--accent);
-      font-size: 1.1rem;
-      margin-bottom: 0.35rem;
+      font-size: clamp(1.2rem, 3vw, 1.65rem);
+      letter-spacing: 0.08em;
+      margin-bottom: 0.5rem;
     }
 
-    .tournament-hub > p {
+    .hub-hero p {
       color: var(--muted);
-      margin-bottom: 1rem;
-      font-size: 0.95rem;
-    }
-
-    .hub-search {
-      width: 100%;
-      max-width: 420px;
-      margin-bottom: 1rem;
-      font-size: 1rem;
-      padding: 0.55rem 0.75rem;
-      background: var(--bg);
-      border: 1px solid var(--panel-border);
-      color: var(--text);
-      border-radius: 4px;
+      font-size: 1.05rem;
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.45;
     }
 
     .hub-list {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      padding: 0 0.25rem;
     }
 
     .hub-card {
+      position: relative;
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
-      padding: 1rem;
-      background: rgba(0, 0, 0, 0.25);
+      gap: 0.5rem;
+      padding: 1.25rem 1.15rem 1.1rem;
+      background: linear-gradient(145deg, var(--panel), rgba(10, 14, 20, 0.9));
       border: 1px solid var(--panel-border);
-      border-radius: 6px;
+      border-radius: 10px;
       color: var(--text);
       text-decoration: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+      min-height: 130px;
+      overflow: hidden;
+    }
+
+    .hub-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.06), transparent 55%);
+      pointer-events: none;
     }
 
     .hub-card:hover {
       border-color: var(--accent);
-      box-shadow: 0 0 16px rgba(0, 212, 255, 0.15);
+      box-shadow: 0 0 24px rgba(0, 212, 255, 0.18);
+      transform: translateY(-2px);
+    }
+
+    .hub-card-badge {
+      align-self: flex-start;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--success);
+      border: 1px solid rgba(46, 204, 113, 0.45);
+      background: rgba(46, 204, 113, 0.1);
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
     }
 
     .hub-card strong {
       font-family: "Orbitron", sans-serif;
       color: var(--gold);
-      font-size: 0.95rem;
+      font-size: 1.05rem;
+      line-height: 1.25;
+      position: relative;
     }
 
-    .hub-card span {
-      font-size: 0.85rem;
+    .hub-card-meta {
+      font-size: 0.92rem;
+      color: var(--text);
+      position: relative;
+    }
+
+    .hub-card-date {
+      font-size: 0.82rem;
       color: var(--muted);
+      margin-top: auto;
+      position: relative;
+    }
+
+    .hub-card-action {
+      font-size: 0.8rem;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      position: relative;
     }
 
     .hub-empty {
       color: var(--muted);
-      padding: 1rem 0;
+      padding: 2rem 1rem;
+      text-align: center;
+      border: 1px dashed var(--panel-border);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .public-loading {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .public-loading strong {
+      display: block;
+      font-family: "Orbitron", sans-serif;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.06em;
     }
 
     .hub-back {
@@ -774,16 +833,21 @@
 
   <main>
     <section id="tournamentHub" class="tournament-hub" hidden>
-      <h2>Torneos publicados</h2>
-      <p>Solo aparecen torneos con cruces ya sorteados. Busca y elige cuál quieres ver.</p>
-      <input type="search" class="hub-search" id="hubSearch" placeholder="Buscar por nombre…" autocomplete="off" />
+      <div class="hub-hero">
+        <h2>Torneos en curso</h2>
+        <p>Elige un torneo para ver equipos, jugadores y cuadro en vivo. Se actualiza automáticamente.</p>
+      </div>
       <div class="hub-list" id="hubList"></div>
-      <p class="hub-empty" id="hubEmpty" hidden>Aún no hay torneos publicados.</p>
+      <p class="hub-empty" id="hubEmpty" hidden>Aún no hay torneos con cuadro sorteado.</p>
     </section>
 
     <div id="tournamentView">
     <div class="hub-back" id="hubBackWrap" hidden>
       <a href="index.html" class="btn-ghost" id="hubBackLink" style="display:inline-block;padding:0.45rem 0.85rem;border:1px solid var(--panel-border);border-radius:4px;color:var(--muted);text-decoration:none;">← Todos los torneos</a>
+    </div>
+    <div id="publicLoading" class="public-loading" hidden>
+      <strong>Cargando torneo…</strong>
+      Sincronizando cuadro en vivo
     </div>
     <div class="toolbar" id="toolbar">
       <p class="format-info">
@@ -848,6 +912,8 @@
     let choosePayload;
     let resolveAuthoritativePayload;
 
+    let resolvePublicPayload;
+
     function bindTournamentLib() {
       const L = window.TournamentLib;
       if (!L) return false;
@@ -856,6 +922,7 @@
       mergePayload = L.mergePayload;
       choosePayload = L.choosePayload;
       resolveAuthoritativePayload = L.resolveAuthoritativePayload;
+      resolvePublicPayload = L.resolvePublicPayload;
       return true;
     }
 
@@ -864,6 +931,7 @@
     const BO_OPTIONS = [3, 5, 7, 9];
     const isFileMode = location.protocol === "file:";
     let firestoreUnsub = null;
+    let hubFirestoreUnsub = null;
 
     let activeTournamentId =
       window.TournamentTenant?.resolveTournamentIdFromSearch(location.search, {
@@ -905,6 +973,13 @@
         .replace(/"/g, "&quot;");
     }
 
+    function resolvePayloadForView(local, cloud, options = {}) {
+      if (PUBLIC_VIEW && typeof resolvePublicPayload === "function") {
+        return resolvePublicPayload(local, cloud);
+      }
+      return resolveAuthoritativePayload(local, cloud, options);
+    }
+
     function showPublicHub() {
       publicHubMode = true;
       document.getElementById("tournamentHub").hidden = false;
@@ -912,12 +987,12 @@
       const hdr = document.querySelector("header h1");
       const sub = document.querySelector("header p");
       if (hdr) hdr.textContent = "TORNEOS STARCRAFT";
-      if (sub) sub.textContent = "Elige un torneo publicado para ver el cuadro en vivo";
-      document.title = "Torneos publicados · StarCraft";
+      if (sub) sub.textContent = "Selecciona un torneo para ver equipos y cuadro en vivo";
+      document.title = "Torneos en curso · StarCraft";
       const el = document.getElementById("dbStatus");
       if (el) {
-        el.textContent = "Catálogo de torneos";
-        el.className = "db-status";
+        el.textContent = "Actualización automática";
+        el.className = "db-status online";
       }
     }
 
@@ -926,42 +1001,54 @@
       document.getElementById("tournamentHub").hidden = true;
       document.getElementById("tournamentView").classList.remove("view-hidden");
       const back = document.getElementById("hubBackWrap");
-      if (back) back.hidden = isLegacyPrincipalTournament();
+      if (back) back.hidden = false;
+    }
+
+    function setPublicLoading(visible) {
+      const el = document.getElementById("publicLoading");
+      const toolbar = document.getElementById("toolbar");
+      const teams = document.getElementById("teamsSection");
+      const bracket = document.getElementById("bracketSection");
+      const empty = document.getElementById("emptyBracket");
+      if (el) el.hidden = !visible;
+      if (visible) {
+        if (toolbar) toolbar.hidden = true;
+        if (teams) teams.hidden = true;
+        if (bracket) bracket.hidden = true;
+        if (empty) empty.hidden = true;
+      } else {
+        if (toolbar) toolbar.hidden = false;
+        if (teams) teams.hidden = false;
+      }
     }
 
     function renderPublicHub() {
-      const q = document.getElementById("hubSearch")?.value?.trim().toLowerCase() || "";
       const list = document.getElementById("hubList");
       const empty = document.getElementById("hubEmpty");
       if (!list) return;
-      const filtered = publicHubTournaments.filter(
-        (t) =>
-          !q ||
-          String(t.name || "").toLowerCase().includes(q) ||
-          String(t.id || "").toLowerCase().includes(q)
-      );
       list.innerHTML = "";
-      if (empty) {
-        empty.hidden = filtered.length > 0;
-        if (!filtered.length && publicHubTournaments.length > 0) {
-          empty.textContent = "Ningún torneo coincide con la búsqueda.";
-          empty.hidden = false;
-        }
-      }
-      filtered.forEach((t) => {
+      if (empty) empty.hidden = publicHubTournaments.length > 0;
+      publicHubTournaments.forEach((t) => {
         const card = document.createElement("a");
         card.className = "hub-card";
         card.href = "index.html?t=" + encodeURIComponent(t.id);
+        const badge = document.createElement("span");
+        badge.className = "hub-card-badge";
+        badge.textContent = "En vivo";
         const title = document.createElement("strong");
         title.textContent = t.name || t.id;
         const meta = document.createElement("span");
-        meta.textContent =
-          (t.teamCount || 0) +
-          " equipos · " +
-          (t.updatedAt
-            ? new Date(t.updatedAt).toLocaleDateString("es")
-            : "en curso");
-        card.append(title, meta);
+        meta.className = "hub-card-meta";
+        meta.textContent = (t.teamCount || 0) + " equipos registrados";
+        const date = document.createElement("span");
+        date.className = "hub-card-date";
+        date.textContent = t.updatedAt
+          ? "Actualizado · " + new Date(t.updatedAt).toLocaleString("es")
+          : "Cuadro en curso";
+        const action = document.createElement("span");
+        action.className = "hub-card-action";
+        action.textContent = "Ver cuadro →";
+        card.append(badge, title, meta, date, action);
         list.appendChild(card);
       });
     }
@@ -974,24 +1061,8 @@
         const out = [];
         snap.forEach((doc) => {
           if (doc.id === "admin_roles") return;
-          const data = doc.data();
-          const payload =
-            data.payload != null
-              ? data.payload
-              : data.data != null
-                ? data.data
-                : null;
-          if (!payload || !hasBracketData(payload)) return;
-          out.push({
-            id: doc.id,
-            name:
-              data.name ||
-              payload?.tournamentName ||
-              (doc.id === "principal" ? "Torneo principal" : doc.id),
-            drawn: true,
-            teamCount: payload?.teams?.length || 0,
-            updatedAt: payload?.savedAt || payload?.drawInfo?.drawnAt || null,
-          });
+          const entry = hubEntryFromFirestoreDoc(doc);
+          if (entry) out.push(entry);
         });
         return { list: out, permissionDenied: false };
       } catch (e) {
@@ -1077,9 +1148,61 @@
           empty.textContent = "No se pudo cargar la lista. Comprueba la conexión o recarga la página.";
         } else {
           empty.textContent =
-            "Aún no hay torneos publicados con cuadro sorteado. En el admin, pulsa Guardar tras sortear.";
+            "Aún no hay torneos con cuadro sorteado. Cuando un organizador sortee los cruces, aparecerán aquí automáticamente.";
         }
       }
+    }
+
+    function hubEntryFromFirestoreDoc(doc) {
+      const data = doc.data();
+      const payload =
+        data.payload != null
+          ? data.payload
+          : data.data != null
+            ? data.data
+            : null;
+      if (!payload || !hasBracketData(payload)) return null;
+      return {
+        id: doc.id,
+        name:
+          data.name ||
+          payload?.tournamentName ||
+          (doc.id === "principal" ? "Torneo principal" : doc.id),
+        drawn: true,
+        teamCount: payload?.teams?.length || 0,
+        updatedAt: payload?.savedAt || payload?.drawInfo?.drawnAt || null,
+      };
+    }
+
+    function mergeHubTournamentLists(...lists) {
+      const byId = new Map();
+      lists.flat().forEach((t) => {
+        if (t?.id) byId.set(t.id, t);
+      });
+      publicHubTournaments = [...byId.values()].sort(
+        (a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0)
+      );
+      if (publicHubMode) renderPublicHub();
+    }
+
+    function subscribePublicHubFirestore() {
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      if (!firebaseReady || !firestoreDb || !cfg?.enabled) return;
+      if (hubFirestoreUnsub) hubFirestoreUnsub();
+      hubFirestoreUnsub = firestoreDb.collection(cfg.firestoreCollection).onSnapshot(
+        (snap) => {
+          const fromFs = [];
+          snap.forEach((doc) => {
+            if (doc.id === "admin_roles") return;
+            const entry = hubEntryFromFirestoreDoc(doc);
+            if (entry) fromFs.push(entry);
+          });
+          mergeHubTournamentLists(publicHubTournaments, fromFs);
+          const empty = document.getElementById("hubEmpty");
+          if (empty) empty.hidden = publicHubTournaments.length > 0;
+        },
+        (err) => console.warn("hub snapshot:", err)
+      );
     }
 
     function showUnpublishedMessage() {
@@ -1091,8 +1214,8 @@
       if (empty) empty.hidden = false;
       if (msg) {
         msg.innerHTML =
-          "Este torneo <strong>aún no está publicado</strong>. El organizador debe sortear los cruces primero.<br><br>" +
-          '<a href="index.html" style="color:var(--accent)">← Ver torneos publicados</a>';
+          "Este torneo <strong>aún no tiene cuadro sorteado</strong> o no está disponible en este momento.<br><br>" +
+          '<a href="index.html" style="color:var(--accent)">← Ver todos los torneos</a>';
       }
       const el = document.getElementById("dbStatus");
       if (el) {
@@ -1426,7 +1549,7 @@
         const json = await res.json();
         if (!json.data) return false;
         const local = readLocalPayload();
-        const merged = resolveAuthoritativePayload(local, json.data, { prefer: "cloud" });
+        const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
         if (merged) applyMergedPayload(merged);
         return !!merged;
       } catch (e) {
@@ -1509,7 +1632,7 @@
       const cloud = await fetchCloudPayload();
       if (!cloud || typeof cloud !== "object") return false;
       const local = readLocalPayload();
-      return applyMergedPayload(resolveAuthoritativePayload(local, cloud, { prefer: "cloud" }));
+      return applyMergedPayload(resolvePayloadForView(local, cloud, { prefer: "cloud" }));
     }
 
     async function persistToFirestore(payload) {
@@ -1545,7 +1668,7 @@
         const json = await res.json();
         if (!json.data) return false;
         const local = readLocalPayload();
-        return applyMergedPayload(resolveAuthoritativePayload(local, json.data, { prefer: "cloud" }));
+        return applyMergedPayload(resolvePayloadForView(local, json.data, { prefer: "cloud" }));
       } catch (e) {
         return false;
       }
@@ -2673,7 +2796,7 @@
         empty.hidden = false;
         if (PUBLIC_VIEW) {
           empty.querySelector(".empty-bracket").innerHTML =
-            "El cuadro aún no está publicado aquí. Si el admin ya sorteó, abre <strong>https://torneo-sc2.onrender.com/index.html</strong> (no el archivo del PC), pulsa F5 o borra datos del sitio en este navegador.";
+            "El cuadro de este torneo aún no está disponible. Vuelve al <a href=\"index.html\" style=\"color:var(--accent)\">listado de torneos</a> o recarga la página.";
         }
         return;
       }
@@ -2703,23 +2826,25 @@
 
       const grandEl = document.getElementById("grandBracket");
       grandEl.innerHTML = "";
-      const col = document.createElement("div");
-      col.className = "round-column";
-      const grandLabelRow = document.createElement("div");
-      grandLabelRow.className = "round-label-row";
-      const grandLabel = document.createElement("div");
-      grandLabel.className = "round-label";
-      grandLabel.textContent = "Gran final";
-      grandLabelRow.appendChild(grandLabel);
-      const grandBo = createRoundBoReadonly("grand", 0);
-      if (grandBo) grandLabelRow.appendChild(grandBo);
-      col.appendChild(grandLabelRow);
-      const grandSlot = document.createElement("div");
-      grandSlot.className = "match-slot";
-      grandSlot.dataset.matchId = state.bracket.grand.id;
-      grandSlot.appendChild(renderMatchCard(state.bracket.grand));
-      col.appendChild(grandSlot);
-      grandEl.appendChild(col);
+      if (state.bracket?.grand) {
+        const col = document.createElement("div");
+        col.className = "round-column";
+        const grandLabelRow = document.createElement("div");
+        grandLabelRow.className = "round-label-row";
+        const grandLabel = document.createElement("div");
+        grandLabel.className = "round-label";
+        grandLabel.textContent = "Gran final";
+        grandLabelRow.appendChild(grandLabel);
+        const grandBo = createRoundBoReadonly("grand", 0);
+        if (grandBo) grandLabelRow.appendChild(grandBo);
+        col.appendChild(grandLabelRow);
+        const grandSlot = document.createElement("div");
+        grandSlot.className = "match-slot";
+        grandSlot.dataset.matchId = state.bracket.grand.id;
+        grandSlot.appendChild(renderMatchCard(state.bracket.grand));
+        col.appendChild(grandSlot);
+        grandEl.appendChild(col);
+      }
 
       checkChampion();
       scheduleBracketGuides();
@@ -2743,7 +2868,7 @@
               } catch (e) {
                 /* ignore */
               }
-              const merged = resolveAuthoritativePayload(local, payload, { prefer: "cloud" });
+              const merged = resolvePayloadForView(local, payload, { prefer: "cloud" });
               if (applyMergedPayload(merged)) {
                 renderAll();
               }
@@ -2806,7 +2931,7 @@
 
       const cloud = await fetchCloudPayload();
       const local = readLocalPayload();
-      const merged = resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
+      const merged = resolvePayloadForView(local, cloud, { prefer: "cloud" });
 
       if (merged) applyMergedPayload(merged);
       renderAll();
@@ -2823,7 +2948,7 @@
         const json = await res.json();
         if (!json.data) return;
         const local = readLocalPayload();
-        const merged = resolveAuthoritativePayload(local, json.data, { prefer: "cloud" });
+        const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
         if (!merged) return;
         const localHasBracket = hasBracketData(local);
         if (localHasBracket && payloadScore(merged) <= payloadScore(local)) return;
@@ -2860,47 +2985,79 @@
       }
     }
 
+    async function loadPublicTournamentView() {
+      showTournamentView();
+      setPublicLoading(true);
+      updatePublicHeader();
+
+      await pingSqliteBackend();
+      await loadFromServerApi();
+
+      try {
+        await loadFirebaseSdk();
+        initFirebaseFromConfig();
+      } catch (e) {
+        console.warn("Firebase SDK:", e);
+      }
+
+      const hasData = await syncFromCloud();
+      if (!hasData && !hasBracketData(state)) {
+        loadFromLocalStorage();
+      }
+
+      setPublicLoading(false);
+      if (!hasBracketData(state)) {
+        showUnpublishedMessage();
+      } else {
+        renderAll();
+      }
+      updateStorageBadge();
+
+      if (firebaseReady) {
+        subscribePublicFirestore();
+        if (!isFileMode) {
+          pollServerTournament();
+          setInterval(pollServerTournament, 12000);
+        }
+      } else if (!isFileMode) {
+        pollServerTournament();
+        setInterval(pollServerTournament, 12000);
+      }
+    }
+
+    async function loadPublicHubPage() {
+      showPublicHub();
+      const list = document.getElementById("hubList");
+      if (list) {
+        list.innerHTML =
+          '<p class="hub-empty" style="grid-column:1/-1;border-style:solid;">Cargando torneos en vivo…</p>';
+      }
+      await loadPublicHubList();
+      try {
+        await loadFirebaseSdk();
+        initFirebaseFromConfig();
+        subscribePublicHubFirestore();
+      } catch (e) {
+        console.warn("Hub Firebase:", e);
+      }
+      if (!isFileMode && !hubFirestoreUnsub) {
+        setInterval(loadPublicHubList, 120000);
+      }
+    }
+
     function initApp() {
       window.addEventListener("resize", scheduleBracketGuides);
       try {
         if (PUBLIC_VIEW) {
           if (publicHubMode) {
-            showPublicHub();
-            loadPublicHubList();
-            document.getElementById("hubSearch")?.addEventListener("input", renderPublicHub);
-            if (!isFileMode) {
-              setInterval(loadPublicHubList, 60000);
-            }
+            loadPublicHubPage().catch((e) => console.error("Hub:", e));
             return;
           }
-          showTournamentView();
-          loadFromLocalStorage();
-          renderAll();
-          updateStorageBadge();
-          loadFromServerApi()
-            .then(() => {
-              renderAll();
-              updateStorageBadge();
-            })
-            .catch(() => {});
-          loadFirebaseSdk()
-            .then(async () => {
-              await syncFromCloud();
-              if (firebaseReady) subscribePublicFirestore();
-              if (!isFileMode) {
-                pollServerTournament();
-                setInterval(pollServerTournament, 12000);
-              }
-            })
-            .catch((e) => {
-              const el = document.getElementById("dbStatus");
-              if (el && !hasBracketData(state)) {
-                el.textContent = firebaseInitError || "Sin conexión en vivo";
-                el.title = e?.message || String(e);
-              }
-              pollServerTournament();
-              if (!isFileMode) setInterval(pollServerTournament, 12000);
-            });
+          loadPublicTournamentView().catch((e) => {
+            console.error("Vista torneo:", e);
+            setPublicLoading(false);
+            showUnpublishedMessage();
+          });
           return;
         }
         loadFromLocalStorage();

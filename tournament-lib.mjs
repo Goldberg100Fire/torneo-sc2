@@ -117,6 +117,23 @@ export function createTournamentLib(options = {}) {
     return mergePayload(local, cloud, { prefer });
   }
 
+  /** Vista pública: prioriza copia con cuadro publicado (Firestore) sobre caché local vacía. */
+  function resolvePublicPayload(local, cloud) {
+    if (!local && !cloud) return null;
+    if (!local) return cloud;
+    if (!cloud) return local;
+    const lLive = isPubliclyListable(local);
+    const cLive = isPubliclyListable(cloud);
+    if (cLive && !lLive) return cloud;
+    if (lLive && !cLive) return local;
+    if (cLive && lLive) {
+      return payloadScore(cloud) >= payloadScore(local)
+        ? mergePayload(local, cloud, { prefer: "cloud" })
+        : mergePayload(local, cloud, { prefer: "local" });
+    }
+    return resolveAuthoritativePayload(local, cloud, { prefer: "cloud" });
+  }
+
   function pickPayload(local, cloud, options = {}) {
     const prefer = options.prefer === "cloud" ? "cloud" : "local";
     const lTime = payloadTime(local);
@@ -240,6 +257,7 @@ export function createTournamentLib(options = {}) {
     payloadTime,
     rosterSignature,
     resolveAuthoritativePayload,
+    resolvePublicPayload,
     mergeTeamPlayers,
     mergeTeams,
     mergePayload,

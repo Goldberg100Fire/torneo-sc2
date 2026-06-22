@@ -376,9 +376,21 @@ app.get("/api/tournament", async (req, res) => {
     return res.json({ data: null, updatedAt: null, source: "empty" });
   }
 
-  const data = firestore && sqlite
-    ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
-    : (firestore?.data || sqlite?.data);
+  let data = null;
+  const candidates = [];
+  if (firestore?.data) candidates.push(firestore.data);
+  if (sqlite?.data) candidates.push(sqlite.data);
+  const published = candidates.filter((c) => tournamentLib.isPubliclyListable(c));
+  if (published.length) {
+    data = published.sort(
+      (a, b) => tournamentLib.payloadScore(b) - tournamentLib.payloadScore(a)
+    )[0];
+  } else {
+    data =
+      firestore && sqlite
+        ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
+        : firestore?.data || sqlite?.data;
+  }
   const updatedAt =
     data?.savedAt || firestore?.updatedAt || sqlite?.updatedAt || new Date().toISOString();
 
@@ -558,7 +570,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     auth.decoded &&
     (auth.decoded.uid === firestore.meta?.ownerUid ||
       (await verifySuperAdmin(auth.decoded)));
-  if (!tournamentLib.hasBracketData(firestore.data) && !isOwnerOrSuper) {
+  if (!tournamentLib.isPubliclyListable(firestore.data) && !isOwnerOrSuper) {
     return res.status(403).json({
       error: "Este torneo aún no está publicado (falta sortear cruces).",
       id,
@@ -572,7 +584,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     id,
     name: firestore.meta?.name || id,
     ownerUid: firestore.meta?.ownerUid || null,
-      published: !!tournamentLib.hasBracketData(firestore.data),
+      published: !!tournamentLib.isPubliclyListable(firestore.data),
   });
 });
 
