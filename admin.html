@@ -1368,6 +1368,18 @@
             showToast("Perdedores de Winners enlazados al repechaje. Revisa y guarda.")
           );
         }
+        if (
+          !isLegacyPrincipalTournament() &&
+          !window.BracketEngine.lbHasAnyConfirmed(state.bracket)
+        ) {
+          const lbFix = window.BracketEngine.repairLbByeGhosts(state.bracket, mkFix);
+          if (lbFix?.changed) {
+            reconcileBracketMatches();
+            queueMicrotask(() =>
+              showToast("Repechaje reordenado ronda a ronda. Revisa el cuadro y guarda.")
+            );
+          }
+        }
       }
     }
 
@@ -2839,7 +2851,11 @@
         : buildMainBracketFromSlots(slots, target);
 
       if (winnerRound.length === 1) {
-        wireSinglePrelimLoser(bracket, winnerRound[0]);
+        const plLb = buildPrelimLoserRoundFromSources(winnerRound, 0);
+        loserRounds.push(plLb);
+        const last = plLb[0];
+        if (last && !last.feedB) last.teamB = `bye-${last.id}`;
+        wirePrelimLbChampionToBracket(bracket, last);
         rebuildLbAfterPrelimWire(bracket);
       } else if (loserRounds.length) {
         const last = loserRounds[loserRounds.length - 1];
@@ -2882,6 +2898,7 @@
         changed = false;
         for (const match of getAllMatchesList()) {
           if (match.confirmed) continue;
+          if (match.bracket === "losers") continue;
           const { a, b } = resolveMatchTeams(match);
           const aBye = a && teamById(a)?.isBye;
           const bBye = b && teamById(b)?.isBye;

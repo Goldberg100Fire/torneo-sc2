@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import {
   buildDoubleElimBracket,
   buildLb0,
-  buildLb1WithPrelimBridge,
+  buildPrelimBridgeLayout,
   feed,
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   repairOrphanWbLosersToLb,
+  repairLbProgressionFromLb0,
   findOrphanWbLosers,
   validateLbWinnerDestinations,
   findIntraRoundLbFeedIssues,
@@ -22,6 +23,16 @@ function makeWb16() {
   return buildDoubleElimBracket(ids, mk).wb;
 }
 
+function winnerDestRound(bracket, match) {
+  return (bracket.matches || [])
+    .filter(
+      (x) =>
+        (x.feedA?.matchId === match.id && x.feedA?.slot === "winner") ||
+        (x.feedB?.matchId === match.id && x.feedB?.slot === "winner")
+    )
+    .map((x) => x.round);
+}
+
 test("16 equipos: todos los cruces LB tienen destino de ganador", () => {
   let seq = 0;
   const mk = () => `m-${seq++}`;
@@ -34,7 +45,7 @@ test("16 equipos: todos los cruces LB tienen destino de ganador", () => {
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
-test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () => {
+test("18 equipos (prelim extra en lb[0]): puente en LB R2 y bajada WB en LB R3", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;
@@ -53,16 +64,28 @@ test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () =
   const bracket = {
     wb,
     lb: [lb0],
-    matches: [...lb0, prelim],
+    matches: [...lb0],
     grand: null,
+    _prelimLbFeed: prelim.feedA,
   };
 
   rebuildLbFromDrop(bracket, mk);
 
-  assert.equal(bracket.lb[0].length, 5);
-  assert.ok(bracket.lb[1].length >= 5, "LB R1 debe tener al menos 5 cruces");
+  assert.equal(bracket.lb[0].length, 4);
+  assert.equal(bracket.lb[1].length, 1, "puente preliminar en ronda propia");
+  assert.equal(bracket.lb[2].length, 4, "todos los perdedores WB R1 en la misma bajada");
+  assert.deepEqual(findOrphanWbLosers(bracket), []);
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
+
+  for (const m of bracket.lb[0]) {
+    const rounds = winnerDestRound(bracket, m);
+    assert.ok(rounds.length, `LB R1 ${m.id} sin destino`);
+    assert.ok(
+      rounds.every((r) => r <= 2),
+      `LB R1 ${m.id} salta a ronda ${rounds.join(",")}`
+    );
+  }
 });
 
 test("lokito: puente en ronda propia; bajada WB en la siguiente", () => {
@@ -73,7 +96,7 @@ test("lokito: puente en ronda propia; bajada WB en la siguiente", () => {
   const solo = createMatch(mk(), "losers", 0, 4);
   solo.feedA = { matchId: "pre-0", slot: "loser" };
   lb0.push(solo);
-  const bracket = { wb, lb: [lb0, []], matches: [...lb0, solo], grand: null };
+  const bracket = { wb, lb: [lb0], matches: [...lb0], grand: null };
   bracket._prelimLbFeed = solo.feedA;
 
   const wired = wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
@@ -81,43 +104,35 @@ test("lokito: puente en ronda propia; bajada WB en la siguiente", () => {
   assert.equal(wired.changed, true);
   assert.equal(bracket.lb[0].length, 4);
   const host = bracket.lb[0][3];
-  const bridge = bracket.lb[1]?.[3];
+  const bridge = bracket.lb[1]?.[0];
   assert.ok(bridge);
   assert.equal(bridge.round, 1);
   assert.equal(bridge.feedA?.matchId, host.id);
   assert.equal(bridge.feedB?.matchId, "pre-0");
-  assert.equal(bracket.lb[1].length, 4);
+  assert.equal(bracket.lb[2].length, 4);
   for (const m of bracket.lb[0]) {
-    const next = bracket.matches.filter(
-      (x) =>
-        (x.feedA?.matchId === m.id && x.feedA?.slot === "winner") ||
-        (x.feedB?.matchId === m.id && x.feedB?.slot === "winner")
-    );
-    assert.ok(next.length, `LB R1 ${m.id} sin destino`);
+    const destRounds = winnerDestRound(bracket, m);
+    assert.ok(destRounds.length, `LB R1 ${m.id} sin destino`);
     assert.ok(
-      next.every((d) => d.round === 1),
-      `LB R1 ${m.id} salta a ronda ${next.map((d) => d.round + 1).join(",")}`
+      destRounds.every((r) => r <= 2),
+      `LB R1 ${m.id} salta a ronda ${destRounds.join(",")}`
     );
   }
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
-test("buildLb1WithPrelimBridge: puente y bajadas WB en la misma ronda LB", () => {
+test("buildPrelimBridgeLayout: puente y bajada WB en rondas separadas", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;
   const { lb0 } = buildLb0(wb, mk);
-  const built = buildLb1WithPrelimBridge(lb0, wb[1], 3, { matchId: "pre-0", slot: "winner" }, mk);
-  assert.equal(built.round.length, 4);
-  assert.equal(built.round[3].feedB?.matchId, "pre-0");
-  assert.equal(built.round[0].feedB?.matchId, wb[1][0].id);
-  for (const m of lb0) {
-    const next = built.round.filter(
-      (x) => x.feedA?.matchId === m.id && x.feedA?.slot === "winner"
-    );
-    assert.equal(next.length, 1, `LB R1 ${m.id} debe ir a LB R2`);
-  }
-  assert.deepEqual(findIntraRoundLbFeedIssues({ lb: [lb0, built.round] }), []);
+  const layout = buildPrelimBridgeLayout(lb0, wb[1], 3, { matchId: "pre-0", slot: "winner" }, mk);
+  assert.equal(layout.lb1.length, 1);
+  assert.equal(layout.lb2.length, 4);
+  assert.equal(layout.lb1[0].feedB?.matchId, "pre-0");
+  assert.equal(layout.lb2[3].feedA?.matchId, layout.lb1[0].id);
+  assert.equal(layout.lb2[3].feedB?.matchId, wb[1][3].id);
+  assert.equal(layout.lb2[0].feedB?.matchId, wb[1][0].id);
 });
 
 test("prelim bridge: ningún perdedor WB queda sin repechaje", () => {
@@ -143,7 +158,7 @@ test("repairOrphanWbLosersToLb enlaza cuartos huérfano en torneo ya guardado", 
   bracket._prelimLbFeed = { matchId: "pre-0", slot: "winner" };
   rebuildLbFromDrop(bracket, mk);
   const orphan = bracket.wb[1][3];
-  const drop = bracket.lb[2][2];
+  const drop = bracket.lb[2][3];
   drop.feedB = null;
   drop.teamB = `bye-${drop.id}`;
   assert.ok(findOrphanWbLosers(bracket).some((m) => m.id === orphan.id));
@@ -151,6 +166,20 @@ test("repairOrphanWbLosersToLb enlaza cuartos huérfano en torneo ya guardado", 
   assert.equal(repaired.changed, true);
   assert.deepEqual(findOrphanWbLosers(bracket), []);
   assert.equal(drop.feedB?.matchId, orphan.id);
+});
+
+test("sin BYE fantasma en repechaje principal tras repairLbProgressionFromLb0", () => {
+  const wb = makeWb16();
+  let seq = 0;
+  const mk = () => `m-${seq++}`;
+  const { lb0 } = buildLb0(wb, mk);
+  const bracket = { wb, lb: [lb0], matches: [...lb0], grand: null };
+  bracket._prelimLbFeed = { matchId: "pre-0", slot: "winner" };
+  rebuildLbFromDrop(bracket, mk);
+  const ghosts = bracket.matches.filter(
+    (m) => m.bracket === "losers" && (m.teamB?.startsWith("bye-") || m.teamA?.startsWith("bye-"))
+  );
+  assert.equal(ghosts.length, 0);
 });
 
 test("con LB confirmados: no borra ni altera partidos ya jugados", () => {

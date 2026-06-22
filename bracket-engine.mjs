@@ -61,30 +61,80 @@ export function findIntraRoundLbFeedIssues(bracket) {
   return issues;
 }
 
-/** Ronda LB de bajadas: ganadores previos vs perdedores WB (sin feeds intra-ronda). */
-export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
-  const round = [];
-  const matches = [];
+/** Fuentes de lado A para una bajada WB→LB (ganador previo o puente preliminar). */
+function buildLbDropSideA(prev, options = {}) {
   const bridgeHost = options.bridgeHostIndex ?? -1;
   const bridgeMatch = options.bridgeMatch || null;
-  const orphanWbLosers = options.orphanWbLosers ? [...options.orphanWbLosers] : [];
-  let orphanIdx = 0;
-  const slotCount = Math.max(prev.length, wbRound.length);
+  const survivor = options.survivorMatch || null;
+  const feeds = [];
+  if (survivor) feeds.push(feed(survivor, "winner"));
+  for (let i = 0; i < (prev?.length || 0); i++) {
+    if (bridgeHost >= 0 && bridgeMatch && i === bridgeHost) {
+      feeds.push(feed(bridgeMatch, "winner"));
+    } else {
+      feeds.push(feed(prev[i], "winner"));
+    }
+  }
+  return feeds;
+}
 
+/**
+ * Si hay más clasificados LB que bajadas WB, reduce con rondas preliminares internas
+ * (emparejando ganadores LB entre sí) hasta poder enfrentarlos con perdedores WB.
+ */
+export function buildLbEntrantPrelimRounds(lbFeeds, targetCount, startLbR, mkId) {
+  const rounds = [];
+  const matches = [];
+  let entrants = [...lbFeeds];
+  let lbR = startLbR;
+
+  while (entrants.length > targetCount && entrants.length > 1) {
+    const round = [];
+    const nextEntrants = [];
+    for (let i = 0; i + 1 < entrants.length; i += 2) {
+      const match = createMatch(mkId(), "losers", lbR, round.length);
+      match.feedA = entrants[i];
+      match.feedB = entrants[i + 1];
+      match.isLbPrelim = true;
+      round.push(match);
+      matches.push(match);
+      nextEntrants.push(feed(match, "winner"));
+    }
+    if (entrants.length % 2 === 1) {
+      nextEntrants.push(entrants[entrants.length - 1]);
+    }
+    if (round.length) rounds.push(round);
+    entrants = nextEntrants;
+    lbR++;
+  }
+
+  return { rounds, matches, survivors: entrants, nextLbR: lbR };
+}
+
+/** Ronda LB de bajadas: ganadores previos vs perdedores WB (sin BYE fantasma). */
+export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
+  const insertedRounds = [];
+  const matches = [];
+  const wbSlots = wbRound || [];
+  const targetWb = wbSlots.length;
+  let lbFeeds = buildLbDropSideA(prev, options);
+  let r = lbR;
+
+  if (targetWb > 0 && lbFeeds.length > targetWb) {
+    const prelim = buildLbEntrantPrelimRounds(lbFeeds, targetWb, r, mkId);
+    insertedRounds.push(...prelim.rounds);
+    matches.push(...prelim.matches);
+    lbFeeds = prelim.survivors;
+    r = prelim.nextLbR;
+  }
+
+  const round = [];
+  const slotCount = targetWb > 0 ? Math.min(lbFeeds.length, targetWb) : lbFeeds.length;
   for (let slot = 0; slot < slotCount; slot++) {
-    const match = createMatch(mkId(), "losers", lbR, slot);
-    if (bridgeHost >= 0 && slot === bridgeHost && bridgeMatch) {
-      match.feedA = feed(bridgeMatch, "winner");
-      match.feedB = feed(wbRound[slot], "loser");
-    } else if (slot < prev.length) {
-      match.feedA = feed(prev[slot], "winner");
-      if (slot < wbRound.length) {
-        match.feedB = feed(wbRound[slot], "loser");
-      } else if (orphanIdx < orphanWbLosers.length) {
-        match.feedB = feed(orphanWbLosers[orphanIdx++], "loser");
-      } else {
-        match.teamB = `bye-${match.id}`;
-      }
+    const match = createMatch(mkId(), "losers", r, slot);
+    match.feedA = lbFeeds[slot];
+    if (slot < wbSlots.length) {
+      match.feedB = feed(wbSlots[slot], "loser");
     } else {
       break;
     }
@@ -92,41 +142,56 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
     matches.push(match);
   }
 
-  return { round, matches };
+  return {
+    round,
+    insertedRounds,
+    matches,
+    nextLbR: round.length ? r + 1 : r,
+  };
 }
 
 /**
- * LB R2: ganadores de LB R1 avanzan en la misma ronda; el hueco host juega vs clasificado prelim.
- * El resto de huecos emparejan ganador LB R1 vs perdedor WB de la misma ronda.
+ * Puente preliminar en ronda propia (LB R2) y bajada WB completa en la siguiente (LB R3).
+ * Todos los perdedores WB entran en la misma ronda de bajada; ninguno salta rondas.
  */
-export function buildLb1WithPrelimBridge(lb0, wbRound, hostIdx, prelimFeed, mkId) {
-  const round = [];
+export function buildPrelimBridgeLayout(lb0, wbRound, hostIdx, prelimFeed, mkId) {
   const matches = [];
-  if (!lb0?.length || !wbRound?.length || !prelimFeed) return { round, matches };
+  if (!lb0?.length || !wbRound?.length || !prelimFeed) {
+    return { lb1: [], lb2: [], matches, startLbR: 1, startWbDrop: 1 };
+  }
 
-  for (let slot = 0; slot < lb0.length; slot++) {
-    const match = createMatch(mkId(), "losers", 1, slot);
-    match.feedA = feed(lb0[slot], "winner");
-    if (slot === hostIdx) {
-      match.feedB = prelimFeed;
-    } else if (slot < wbRound.length) {
-      match.feedB = feed(wbRound[slot], "loser");
-    } else {
-      match.teamB = `bye-${match.id}`;
-    }
-    round.push(match);
+  const host = Math.min(Math.max(hostIdx, 0), lb0.length - 1);
+  const bridge = createMatch(mkId(), "losers", 1, 0);
+  bridge.feedA = feed(lb0[host], "winner");
+  bridge.feedB = prelimFeed;
+  bridge.isPrelimBridge = true;
+  const lb1 = [bridge];
+  matches.push(bridge);
+
+  const lb2 = [];
+  for (let i = 0; i < wbRound.length; i++) {
+    const match = createMatch(mkId(), "losers", 2, i);
+    match.feedA = i === host ? feed(bridge, "winner") : feed(lb0[i], "winner");
+    match.feedB = feed(wbRound[i], "loser");
+    lb2.push(match);
     matches.push(match);
   }
 
-  return { round, matches };
+  return { lb1, lb2, matches, startLbR: 3, startWbDrop: 2 };
 }
 
-/** Empareja ganadores de la ronda anterior; impar recibe BYE (sin rival pendiente). */
+/** @deprecated Usar buildPrelimBridgeLayout */
+export function buildLb1WithPrelimBridge(lb0, wbRound, hostIdx, prelimFeed, mkId) {
+  const layout = buildPrelimBridgeLayout(lb0, wbRound, hostIdx, prelimFeed, mkId);
+  return { round: layout.lb2, matches: layout.matches };
+}
+
+/** Empareja ganadores de la ronda anterior; impar pasa como survivor (sin BYE). */
 export function buildLbConsolidationRound(prevRound, lbR, mkId) {
   const round = [];
   const matches = [];
   if (!prevRound?.length || prevRound.length === 1) {
-    return { round, matches };
+    return { round, matches, survivor: prevRound?.[0] || null };
   }
   const pairCount = Math.floor(prevRound.length / 2);
   for (let i = 0; i < pairCount; i++) {
@@ -136,14 +201,9 @@ export function buildLbConsolidationRound(prevRound, lbR, mkId) {
     matches.push(match);
     round.push(match);
   }
-  if (prevRound.length % 2 === 1) {
-    const carry = createMatch(mkId(), "losers", lbR, round.length);
-    carry.feedA = feed(prevRound[prevRound.length - 1], "winner");
-    carry.teamB = `bye-${carry.id}`;
-    matches.push(carry);
-    round.push(carry);
-  }
-  return { round, matches };
+  const survivor =
+    prevRound.length % 2 === 1 ? prevRound[prevRound.length - 1] : null;
+  return { round, matches, survivor };
 }
 
 /**
@@ -152,41 +212,46 @@ export function buildLbConsolidationRound(prevRound, lbR, mkId) {
  */
 export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options = {}) {
   const matches = [];
-  const wbRounds = wb.length;
   let lbR = startLbR;
   let wbDrop = startWbDrop;
-  let pendingOrphans = options.orphanWbLosers ? [...options.orphanWbLosers] : [];
+  let pendingSurvivor = options.survivorMatch || null;
 
-  while (lbR < 20) {
+  while (lbR < 20 && wbDrop < wb.length) {
     const prev = lb[lbR - 1];
-    if (!prev?.length) break;
+    if (!prev?.length && !pendingSurvivor) break;
 
-    if (wbDrop < wbRounds) {
-      const wbRound = wb[wbDrop];
-      const drop = buildLbDropRound(prev, wbRound, lbR, mkId, {
-        orphanWbLosers: pendingOrphans,
-      });
-      pendingOrphans = [];
-      lb[lbR] = drop.round;
-      matches.push(...drop.matches);
+    const drop = buildLbDropRound(prev, wb[wbDrop], lbR, mkId, {
+      survivorMatch: pendingSurvivor,
+    });
+    pendingSurvivor = null;
+
+    for (const pr of drop.insertedRounds || []) {
+      lb[lbR] = pr;
       lbR++;
-      wbDrop++;
-
-      const prev2 = lb[lbR - 1];
-      if (prev2.length > 1) {
-        const cons = buildLbConsolidationRound(prev2, lbR, mkId);
-        if (cons.round.length) {
-          lb[lbR] = cons.round;
-          matches.push(...cons.matches);
-          lbR++;
-        }
-      }
-    } else {
+    }
+    if (drop.round.length) {
+      lb[lbR] = drop.round;
+      lbR = drop.nextLbR;
+    } else if (!drop.insertedRounds?.length) {
       break;
     }
+    matches.push(...drop.matches);
+    wbDrop++;
+
+    const prev2 = lb[lbR - 1];
+    if (!prev2?.length) continue;
+    if (prev2.length === 1) continue;
+
+    const cons = buildLbConsolidationRound(prev2, lbR, mkId);
+    if (cons.round.length) {
+      lb[lbR] = cons.round;
+      matches.push(...cons.matches);
+      lbR++;
+    }
+    if (cons.survivor) pendingSurvivor = cons.survivor;
   }
 
-  return { matches, lbR };
+  return { matches, lbR, survivor: pendingSurvivor };
 }
 
 /** Rondas LB completas desde cero (potencia de 2, sin prelim extra en lb[0]). */
@@ -295,33 +360,41 @@ export function rebuildLbFromDrop(bracket, mkId) {
   let seq = bracket.matches.length;
   const nextId = () => mkId(seq++);
 
-  const prelimFeed = bracket._prelimLbFeed || null;
+  const prelimFeed = bracket._prelimLbFeed || findPrelimLbFeed(bracket);
   const bridgeHost =
     bracket._prelimBridgeHost ??
     (prelimFeed != null ? standardLb0Count(bracket) - 1 : -1);
   let startLbR = 1;
   let startWbDrop = 1;
   const bridgeMatches = [];
-  const orphanWbLosers = [];
+
+  if (prelimFeed) {
+    const solo = findPrelimSoloLb0(bracket);
+    if (solo) {
+      bracket.lb[0] = bracket.lb[0].filter((m) => m.id !== solo.id);
+      bracket.matches = (bracket.matches || []).filter((m) => m.id !== solo.id);
+      bracket.lb[0].forEach((m, i) => {
+        m.index = i;
+      });
+    }
+  }
 
   if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost] && wb[1]) {
-    if (wb[1][bridgeHost]) orphanWbLosers.push(wb[1][bridgeHost]);
-    const built = buildLb1WithPrelimBridge(
+    const layout = buildPrelimBridgeLayout(
       bracket.lb[0],
       wb[1],
       bridgeHost,
       prelimFeed,
       nextId
     );
-    bracket.lb[1] = built.round;
-    bridgeMatches.push(...built.matches);
-    startLbR = 2;
-    startWbDrop = 2;
+    bracket.lb[1] = layout.lb1;
+    bracket.lb[2] = layout.lb2;
+    bridgeMatches.push(...layout.matches);
+    startLbR = layout.startLbR;
+    startWbDrop = layout.startWbDrop;
   }
 
-  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId, {
-    orphanWbLosers,
-  });
+  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId);
   bracket.matches.push(...bridgeMatches, ...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
@@ -496,13 +569,14 @@ function wireLokitoPreserveConfirmed(bracket, mkId, hostIdx, prelimFeed, changed
     changed = true;
   }
 
-  let drop = bracket.lb[1][hostIdx];
+  let drop = bracket.lb[2]?.[hostIdx];
   if (!drop) {
-    drop = createMatch(nextId(), "losers", 1, hostIdx);
+    drop = createMatch(nextId(), "losers", 2, hostIdx);
     drop.index = hostIdx;
-    while (bracket.lb[1].length < hostIdx) bracket.lb[1].push(null);
-    if (bracket.lb[1].length === hostIdx) bracket.lb[1].push(drop);
-    else bracket.lb[1][hostIdx] = drop;
+    if (!bracket.lb[2]) bracket.lb[2] = [];
+    while (bracket.lb[2].length < hostIdx) bracket.lb[2].push(null);
+    if (bracket.lb[2].length === hostIdx) bracket.lb[2].push(drop);
+    else bracket.lb[2][hostIdx] = drop;
     bracket.matches.push(drop);
     changed = true;
   }
@@ -571,15 +645,11 @@ export function repairOrphanPrelimLbEntries(bracket, mkId) {
   let changed = false;
 
   if (!hasConfirmed) {
-    for (const entry of orphans) {
-      if (entry.confirmed) continue;
-      if (entry.feedA && !entry.feedB && !entry.teamB) {
-        entry.teamB = `bye-${entry.id}`;
-        changed = true;
-      }
+    if (repairLbByeGhosts(bracket, nextId).changed) return { changed: true, preservedConfirmed: false };
+    if (repairLbProgressionFromLb0(bracket, nextId).changed) {
+      return { changed: true, preservedConfirmed: false };
     }
-    if (rebuildLbFromDrop(bracket, nextId)) changed = true;
-    return { changed, preservedConfirmed: false };
+    return { changed: false, preservedConfirmed: false };
   }
 
   if (repairOrphanPrelimMinimal(bracket, nextId, orphans)) changed = true;
@@ -626,6 +696,51 @@ export function repairOrphanWbLosersToLb(bracket, mkId) {
     changed = true;
   }
   return { changed };
+}
+
+/**
+ * Reconstruye repechaje desde lb[0] con progresión ronda a ronda (sin BYE fantasma).
+ * Solo si aún no hay cruces LB confirmados.
+ */
+export function repairLbProgressionFromLb0(bracket, mkId) {
+  if (lbHasAnyConfirmed(bracket)) {
+    return { changed: false, preservedConfirmed: true };
+  }
+  const prelimFeed = findPrelimLbFeed(bracket);
+  const solo = findPrelimSoloLb0(bracket);
+  if (solo) {
+    bracket.lb[0] = bracket.lb[0].filter((m) => m.id !== solo.id);
+    bracket.matches = (bracket.matches || []).filter((m) => m.id !== solo.id);
+    bracket.lb[0].forEach((m, i) => {
+      m.index = i;
+    });
+  }
+  if (prelimFeed) {
+    bracket._prelimLbFeed = prelimFeed;
+    bracket._prelimBridgeHost = bracket._prelimBridgeHost ?? standardLb0Count(bracket) - 1;
+  }
+  const changed = rebuildLbFromDrop(bracket, mkId);
+  delete bracket._prelimLbFeed;
+  delete bracket._prelimBridgeHost;
+  return { changed, preservedConfirmed: false };
+}
+
+/** Elimina cruces LB con BYE fantasma no confirmados y reconstruye cola. */
+export function repairLbByeGhosts(bracket, mkId) {
+  if (lbHasAnyConfirmed(bracket)) return { changed: false, preservedConfirmed: true };
+  const ghosts = (bracket.matches || []).filter(
+    (m) =>
+      m.bracket === "losers" &&
+      !m.confirmed &&
+      (m.teamB?.startsWith?.("bye-") || m.teamA?.startsWith?.("bye-"))
+  );
+  if (!ghosts.length) return { changed: false, preservedConfirmed: false };
+  const ghostIds = new Set(ghosts.map((m) => m.id));
+  bracket.matches = bracket.matches.filter((m) => !ghostIds.has(m.id));
+  for (let r = 0; r < (bracket.lb?.length || 0); r++) {
+    bracket.lb[r] = (bracket.lb[r] || []).filter((m) => !ghostIds.has(m.id));
+  }
+  return repairLbProgressionFromLb0(bracket, mkId);
 }
 
 /** Todos los cruces de repechaje (salvo gran final) deben tener al menos un feed de salida. */
