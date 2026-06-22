@@ -1284,6 +1284,8 @@
       }
       if (!isLegacyPrincipalTournament() && activeTournamentName) {
         payload.tournamentName = activeTournamentName;
+        if (!payload.drawInfo) payload.drawInfo = {};
+        payload.drawInfo.tournamentName = activeTournamentName;
       }
       return payload;
     }
@@ -1367,6 +1369,23 @@
           queueMicrotask(() =>
             showToast("Perdedores de Winners enlazados al repechaje. Revisa y guarda.")
           );
+        }
+        if (
+          !isLegacyPrincipalTournament() &&
+          !window.BracketEngine.lbHasAnyConfirmed(state.bracket) &&
+          state.preliminary?.loserRounds?.length
+        ) {
+          const prelimFix = window.BracketEngine.repairBrokenLbPrelimRounds(
+            state.bracket,
+            state.preliminary,
+            mkFix
+          );
+          if (prelimFix?.changed) {
+            reconcileBracketMatches();
+            queueMicrotask(() =>
+              showToast("Play-in de repechaje corregido. Revisa el cuadro y guarda.")
+            );
+          }
         }
         if (
           !isLegacyPrincipalTournament() &&
@@ -2549,8 +2568,8 @@
       let seq = bracket.matches.length;
       const mk = () => `m-${seq++}`;
       if (bracket._prelimLbFeed) {
-        window.BracketEngine.wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
-        delete bracket._prelimLbFeed;
+        const hostIdx = bracket._lbPlayInHostIdx ?? -1;
+        window.BracketEngine.wireLokitoVsLb0WinnerInLb1(bracket, mk, hostIdx);
       } else {
         window.BracketEngine.rebuildLbFromDrop(bracket, mk);
       }
@@ -2777,6 +2796,43 @@
       bracket._prelimLbFeed = feed(prelimMatch, "loser");
     }
 
+    function buildPrelimLbPlayInRound(prelimChampMatch, lb0Match, roundIndex) {
+      const matches = [];
+      let seq = 0;
+      const mkId = () => `prelb-playin-${roundIndex}-${seq++}`;
+      const m = makeMatch(mkId, "preliminary-lb", roundIndex, 0);
+      m.feedA = feed(prelimChampMatch, "winner");
+      m.feedB = feed(lb0Match, "winner");
+      m.bestOf = 5;
+      matches.push(m);
+      return matches;
+    }
+
+    function applyPrelimLbToBracket(bracket, loserRounds, prelimChampMatch) {
+      const lb0Count = bracket.lb?.[0]?.length || 0;
+      const wb1Count = bracket.wb?.[1]?.length || 0;
+      const hostIdx = lb0Count - 1;
+      let entryMatch = prelimChampMatch;
+
+      const playInNeeded = window.BracketEngine?.computeLbPlayInNeeded(lb0Count, 1, wb1Count) || 0;
+      if (playInNeeded > 0 && lb0Count > 0 && prelimChampMatch) {
+        const playIn = buildPrelimLbPlayInRound(
+          prelimChampMatch,
+          bracket.lb[0][hostIdx],
+          loserRounds.length
+        );
+        loserRounds.push(playIn);
+        entryMatch = playIn[0];
+        bracket._lbPlayInHostIdx = hostIdx;
+      } else {
+        bracket._lbPlayInHostIdx = -1;
+      }
+
+      wirePrelimLbChampionToBracket(bracket, entryMatch);
+      rebuildLbAfterPrelimWire(bracket);
+      return loserRounds;
+    }
+
     function wirePrelimLbChampionToBracket(bracket, finalPrelimLbMatch) {
       bracket._prelimLbFeed = feed(finalPrelimLbMatch, "winner");
     }
@@ -2871,16 +2927,12 @@
       if (winnerRound.length === 1) {
         const plLb = buildPrelimLoserRoundFromSources(winnerRound, 0);
         loserRounds.push(plLb);
-        const last = plLb[0];
-        if (last && !last.feedB) last.teamB = `bye-${last.id}`;
-        wirePrelimLbChampionToBracket(bracket, last);
-        rebuildLbAfterPrelimWire(bracket);
+        const prelimChamp = plLb[0];
+        if (prelimChamp && !prelimChamp.feedB) prelimChamp.teamB = `bye-${prelimChamp.id}`;
+        applyPrelimLbToBracket(bracket, loserRounds, prelimChamp);
       } else if (loserRounds.length) {
         const last = loserRounds[loserRounds.length - 1];
-        if (last[0]) {
-          wirePrelimLbChampionToBracket(bracket, last[0]);
-          rebuildLbAfterPrelimWire(bracket);
-        }
+        if (last[0]) applyPrelimLbToBracket(bracket, loserRounds, last[0]);
       }
 
       drawInfo.mode = "preliminary";

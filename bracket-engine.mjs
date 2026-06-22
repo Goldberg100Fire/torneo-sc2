@@ -61,15 +61,28 @@ export function findIntraRoundLbFeedIssues(bracket) {
   return issues;
 }
 
-/** Fuentes de lado A para una bajada WB→LB (ganador previo o clasificado preliminar). */
+/** Fuentes de lado A para una bajada WB→LB (ganador previo o play-in preliminar). */
 function buildLbDropSideA(prev, options = {}) {
   const feeds = [];
   if (options.survivorMatch) feeds.push(feed(options.survivorMatch, "winner"));
-  if (options.extraPrelimFeed) feeds.push(options.extraPrelimFeed);
+  const playInHost = options.playInHostIdx ?? -1;
+  const playInFeed = options.playInFeed || null;
   for (let i = 0; i < (prev?.length || 0); i++) {
-    feeds.push(feed(prev[i], "winner"));
+    if (playInHost >= 0 && playInFeed && i === playInHost) {
+      feeds.push(playInFeed);
+    } else {
+      feeds.push(feed(prev[i], "winner"));
+    }
+  }
+  if (playInHost < 0 && options.extraPrelimFeed) {
+    feeds.push(options.extraPrelimFeed);
   }
   return feeds;
+}
+
+/** Cuántos clasificados LB sobran antes de la primera bajada WB (necesitan play-in). */
+export function computeLbPlayInNeeded(lb0MatchCount, prelimChampSlots, wbDropCount) {
+  return Math.max(0, lb0MatchCount + prelimChampSlots - wbDropCount);
 }
 
 /**
@@ -218,10 +231,9 @@ export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options 
 
     const drop = buildLbDropRound(prev, wb[wbDrop], lbR, mkId, {
       survivorMatch: pendingSurvivor,
-      extraPrelimFeed:
-        options.extraPrelimFeed && wbDrop === options.prelimDropWbIndex
-          ? options.extraPrelimFeed
-          : null,
+      playInFeed: options.playInFeed && wbDrop === 1 ? options.playInFeed : null,
+      playInHostIdx: wbDrop === 1 ? options.playInHostIdx ?? -1 : -1,
+      extraPrelimFeed: options.extraPrelimFeed && wbDrop === 1 ? options.extraPrelimFeed : null,
     });
     pendingSurvivor = null;
 
@@ -376,11 +388,23 @@ export function rebuildLbFromDrop(bracket, mkId) {
   }
 
   bracket.lbPrelimRounds = [];
+  const lb0Count = bracket.lb[0].length;
+  const wb1Count = wb[1]?.length || 0;
+  const hasPrelim = !!prelimFeed;
+  const playInNeeded =
+    hasPrelim && computeLbPlayInNeeded(lb0Count, 1, wb1Count) > 0;
+  const playInHostIdx = playInNeeded
+    ? bracket._lbPlayInHostIdx >= 0
+      ? bracket._lbPlayInHostIdx
+      : lb0Count - 1
+    : -1;
   const ext = extendLbRoundsFrom(wb, bracket.lb, 1, 1, nextId, {
-    extraPrelimFeed: prelimFeed || null,
-    prelimDropWbIndex: 1,
+    playInFeed: playInHostIdx >= 0 && prelimFeed ? prelimFeed : null,
+    playInHostIdx,
+    extraPrelimFeed: playInHostIdx < 0 && prelimFeed ? prelimFeed : null,
   });
-  bracket.lbPrelimRounds = ext.lbPrelimRounds || [];
+  bracket.lbPrelimRounds = [];
+  if (playInHostIdx >= 0) bracket._lbPlayInHostIdx = playInHostIdx;
   bracket.matches.push(...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
@@ -522,11 +546,10 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
     return wireLokitoPreserveConfirmed(bracket, mkId, hostIdx, prelimFeed, changed);
   }
 
+  const playInNeeded = computeLbPlayInNeeded(std, 1, bracket.wb?.[1]?.length || 0);
+  bracket._lbPlayInHostIdx = playInNeeded > 0 ? hostIdx : -1;
   bracket._prelimLbFeed = prelimFeed;
-  bracket._prelimBridgeHost = hostIdx;
   if (rebuildLbFromDrop(bracket, mkId)) changed = true;
-  delete bracket._prelimLbFeed;
-  delete bracket._prelimBridgeHost;
 
   return { changed, preservedConfirmed: false };
 }
@@ -703,12 +726,64 @@ export function repairLbProgressionFromLb0(bracket, mkId) {
   }
   if (prelimFeed) {
     bracket._prelimLbFeed = prelimFeed;
-    bracket._prelimBridgeHost = bracket._prelimBridgeHost ?? standardLb0Count(bracket) - 1;
+    const std = standardLb0Count(bracket);
+    const playInNeeded = computeLbPlayInNeeded(std, 1, bracket.wb?.[1]?.length || 0);
+    bracket._lbPlayInHostIdx =
+      bracket._lbPlayInHostIdx >= 0
+        ? bracket._lbPlayInHostIdx
+        : playInNeeded > 0
+          ? std - 1
+          : -1;
   }
   const changed = rebuildLbFromDrop(bracket, mkId);
-  delete bracket._prelimLbFeed;
-  delete bracket._prelimBridgeHost;
   return { changed, preservedConfirmed: false };
+}
+
+/**
+ * Quita rondas preliminares del motor mal generadas y reconstruye play-in en preliminary.
+ */
+export function repairBrokenLbPrelimRounds(bracket, preliminary, mkId) {
+  if (lbHasAnyConfirmed(bracket)) {
+    return { changed: false, preservedConfirmed: true };
+  }
+  let changed = false;
+
+  if (bracket.lbPrelimRounds?.length) {
+    const ids = new Set();
+    for (const round of bracket.lbPrelimRounds) {
+      for (const m of round || []) ids.add(m.id);
+    }
+    bracket.matches = (bracket.matches || []).filter((m) => !ids.has(m.id));
+    bracket.lbPrelimRounds = [];
+    changed = true;
+  }
+
+  if (preliminary?.loserRounds?.length > 1) {
+    const lbMainIds = new Set();
+    for (let r = 1; r < (bracket.lb?.length || 0); r++) {
+      for (const m of bracket.lb[r] || []) lbMainIds.add(m.id);
+    }
+    const filtered = preliminary.loserRounds.filter((round) => {
+      const m = round[0];
+      if (!m) return true;
+      const badA = m.feedA?.slot === "winner" && lbMainIds.has(m.feedA.matchId);
+      const badB = m.feedB?.slot === "winner" && lbMainIds.has(m.feedB.matchId);
+      return !(badA || badB);
+    });
+    if (filtered.length !== preliminary.loserRounds.length) {
+      preliminary.loserRounds = filtered;
+      changed = true;
+    }
+  }
+
+  if (!changed) return { changed: false, preservedConfirmed: false };
+
+  const lastRound = preliminary?.loserRounds?.[preliminary.loserRounds.length - 1];
+  if (lastRound?.[0]) {
+    bracket._prelimLbFeed = feed(lastRound[0], "winner");
+  }
+  rebuildLbFromDrop(bracket, mkId);
+  return { changed: true, preservedConfirmed: false };
 }
 
 /** Elimina cruces LB con BYE fantasma no confirmados y reconstruye cola. */

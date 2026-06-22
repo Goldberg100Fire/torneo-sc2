@@ -4,6 +4,8 @@ import {
   buildDoubleElimBracket,
   buildLb0,
   feed,
+  computeLbPlayInNeeded,
+  repairBrokenLbPrelimRounds,
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   repairOrphanWbLosersToLb,
@@ -44,45 +46,49 @@ test("16 equipos: todos los cruces LB tienen destino de ganador", () => {
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
-test("18 equipos: prelim en ronda propia y bajada WB en LB R2", () => {
+test("18 equipos: play-in prelim y bajada WB en LB R2", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;
-  const lb0 = [];
-  for (let m = 0; m < 4; m++) {
-    const match = createMatch(mk(), "losers", 0, m);
-    match.feedA = feed(wb[0][m * 2], "loser");
-    match.feedB = feed(wb[0][m * 2 + 1], "loser");
-    lb0.push(match);
-  }
-  const prelim = createMatch(mk(), "losers", 0, 4);
-  prelim.feedA = { matchId: "pre-0", slot: "loser" };
-  prelim.teamB = `bye-${prelim.id}`;
-
-  lb0.push(prelim);
+  const { lb0 } = buildLb0(wb, mk);
+  const playIn = createMatch(mk(), "preliminary-lb", 1, 0);
+  playIn.feedA = { matchId: "pre-0", slot: "winner" };
+  playIn.feedB = feed(lb0[3], "winner");
   const bracket = {
     wb,
     lb: [lb0],
-    matches: [...lb0],
+    matches: [...lb0, playIn],
     grand: null,
-    _prelimLbFeed: prelim.feedA,
+    _prelimLbFeed: feed(playIn, "winner"),
+    _lbPlayInHostIdx: 3,
   };
 
   rebuildLbFromDrop(bracket, mk);
 
   assert.equal(bracket.lb[0].length, 4);
   assert.ok(bracket.lb[1]?.length >= 4, "LB R2: bajada WB con todos los perdedores");
-  assert.ok(bracket.lbPrelimRounds?.length >= 1, "prelim LB cuando hay clasificado extra");
+  assert.equal(bracket.lbPrelimRounds?.length || 0, 0, "play-in en preliminary, no en motor");
   assert.deepEqual(findOrphanWbLosers(bracket), []);
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
 
-  for (const m of bracket.lb[0]) {
+  for (let i = 0; i < bracket.lb[0].length; i++) {
+    const m = bracket.lb[0][i];
     const rounds = winnerDestRound(bracket, m);
     assert.ok(rounds.length, `LB R1 ${m.id} sin destino`);
-    assert.ok(
-      rounds.every((r) => r === 1 || r === 0),
-      `LB R1 ${m.id} salta ronda (${rounds.join(",")})`
-    );
+    if (i === 3) {
+      const feedsPlayIn = bracket.matches.some(
+        (x) =>
+          x.id === playIn.id &&
+          x.feedB?.matchId === m.id &&
+          x.feedB?.slot === "winner"
+      );
+      assert.ok(feedsPlayIn, "host LB R1 alimenta play-in preliminar");
+    } else {
+      assert.ok(
+        rounds.every((r) => r === 1),
+        `LB R1 ${m.id} salta ronda (${rounds.join(",")})`
+      );
+    }
   }
 });
 
@@ -102,14 +108,18 @@ test("lokito: clasificado prelim entra en primera bajada WB sin saltar rondas", 
   assert.equal(wired.changed, true);
   assert.equal(bracket.lb[0].length, 4);
   assert.ok(bracket.lb[1]?.length >= 4);
-  assert.ok(bracket.lbPrelimRounds?.length >= 1);
-  for (const m of bracket.lb[0]) {
+  assert.equal(bracket.lbPrelimRounds?.length || 0, 0);
+  assert.equal(bracket._lbPlayInHostIdx, 3);
+  for (let i = 0; i < bracket.lb[0].length; i++) {
+    const m = bracket.lb[0][i];
     const destRounds = winnerDestRound(bracket, m);
-    assert.ok(destRounds.length, `LB R1 ${m.id} sin destino`);
-    assert.ok(
-      destRounds.every((r) => r === 1 || r === 0),
-      `LB R1 ${m.id} salta ronda ${destRounds.join(",")}`
-    );
+    if (i < 3) {
+      assert.ok(destRounds.length, `LB R1 ${m.id} sin destino`);
+      assert.ok(
+        destRounds.every((r) => r === 1),
+        `LB R1 ${m.id} salta ronda ${destRounds.join(",")}`
+      );
+    }
   }
   assert.deepEqual(findOrphanWbLosers(bracket), []);
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
@@ -122,7 +132,12 @@ test("prelim bridge: ningún perdedor WB queda sin repechaje", () => {
     Array.from({ length: 16 }, (_, i) => `t${i}`),
     mk
   );
-  bracket._prelimLbFeed = { matchId: "pre-0", slot: "winner" };
+  const playIn = createMatch(mk(), "preliminary-lb", 1, 0);
+  playIn.feedA = { matchId: "pre-0", slot: "winner" };
+  playIn.feedB = feed(bracket.lb[0][3], "winner");
+  bracket.matches.push(playIn);
+  bracket._prelimLbFeed = feed(playIn, "winner");
+  bracket._lbPlayInHostIdx = 3;
   rebuildLbFromDrop(bracket, mk);
   assert.deepEqual(findOrphanWbLosers(bracket), []);
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);

@@ -936,6 +936,8 @@
     let activeTournamentId = null;
     let publicHubMode = true;
     let publicHubTournaments = [];
+    /** Nombre del torneo desde API/Firestore (meta.name), no el ID técnico. */
+    let publicTournamentMeta = { name: "" };
 
     function refreshTournamentRouting() {
       if (!window.TournamentTenant) return;
@@ -1230,17 +1232,27 @@
       }
     }
 
-    function updatePublicHeader() {
-      const name =
+    function resolveTournamentDisplayName() {
+      const fromPayload =
         state.drawInfo?.tournamentName ||
         state.tournamentName ||
-        (isLegacyPrincipalTournament() ? "" : activeTournamentId);
+        "";
+      if (fromPayload) return fromPayload;
+      if (publicTournamentMeta.name) return publicTournamentMeta.name;
+      if (isLegacyPrincipalTournament()) return "";
+      return "";
+    }
+
+    function updatePublicHeader() {
+      const name = resolveTournamentDisplayName();
       const hdr = document.querySelector("header h1");
       const sub = document.querySelector("header p");
       if (hdr) {
-        hdr.textContent = name && !isLegacyPrincipalTournament()
+        hdr.textContent = name
           ? String(name).toUpperCase()
-          : "TORNEO STARCRAFT";
+          : isLegacyPrincipalTournament()
+            ? "TORNEO STARCRAFT"
+            : "TORNEO STARCRAFT";
       }
       if (sub) {
         sub.textContent = isLegacyPrincipalTournament()
@@ -1248,7 +1260,7 @@
           : "Vista pública · actualización en vivo";
       }
       document.title =
-        name && !isLegacyPrincipalTournament()
+        name
           ? name + " · Torneo StarCraft"
           : "Torneo StarCraft · Vista pública";
     }
@@ -1586,6 +1598,7 @@
         }
         if (!res.ok) return false;
         const json = await res.json();
+        if (json.name) publicTournamentMeta.name = json.name;
         if (!json.data) return false;
         const local = readLocalPayload();
         const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
@@ -1642,6 +1655,7 @@
           const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
           if (snap.exists) {
             const d = snap.data();
+            if (d.name) publicTournamentMeta.name = d.name;
             fromFirestore = d.payload != null ? d.payload : d.data;
           }
         } catch (e) {
@@ -1654,6 +1668,7 @@
           const res = await fetch(getApiUrl());
           if (res.ok) {
             const json = await res.json();
+            if (json.name) publicTournamentMeta.name = json.name;
             if (json.data) fromServer = json.data;
           }
         } catch (e) {
@@ -2925,6 +2940,7 @@
         (snap) => {
           if (snap.exists) {
             const d = snap.data();
+            if (d.name) publicTournamentMeta.name = d.name;
             const payload = d.payload != null ? d.payload : d.data;
             if (payload) {
               let local = null;
@@ -3012,6 +3028,7 @@
         if (res.status === 403) return;
         if (!res.ok) return;
         const json = await res.json();
+        if (json.name) publicTournamentMeta.name = json.name;
         if (!json.data) return;
         const local = readLocalPayload();
         const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
