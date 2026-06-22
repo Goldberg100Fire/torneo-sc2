@@ -61,19 +61,13 @@ export function findIntraRoundLbFeedIssues(bracket) {
   return issues;
 }
 
-/** Fuentes de lado A para una bajada WB→LB (ganador previo o puente preliminar). */
+/** Fuentes de lado A para una bajada WB→LB (ganador previo o clasificado preliminar). */
 function buildLbDropSideA(prev, options = {}) {
-  const bridgeHost = options.bridgeHostIndex ?? -1;
-  const bridgeMatch = options.bridgeMatch || null;
-  const survivor = options.survivorMatch || null;
   const feeds = [];
-  if (survivor) feeds.push(feed(survivor, "winner"));
+  if (options.survivorMatch) feeds.push(feed(options.survivorMatch, "winner"));
+  if (options.extraPrelimFeed) feeds.push(options.extraPrelimFeed);
   for (let i = 0; i < (prev?.length || 0); i++) {
-    if (bridgeHost >= 0 && bridgeMatch && i === bridgeHost) {
-      feeds.push(feed(bridgeMatch, "winner"));
-    } else {
-      feeds.push(feed(prev[i], "winner"));
-    }
+    feeds.push(feed(prev[i], "winner"));
   }
   return feeds;
 }
@@ -87,25 +81,28 @@ export function buildLbEntrantPrelimRounds(lbFeeds, targetCount, startLbR, mkId)
   const matches = [];
   let entrants = [...lbFeeds];
   let lbR = startLbR;
+  let roundIndex = 0;
 
   while (entrants.length > targetCount && entrants.length > 1) {
+    const eliminations = entrants.length - targetCount;
     const round = [];
     const nextEntrants = [];
-    for (let i = 0; i + 1 < entrants.length; i += 2) {
-      const match = createMatch(mkId(), "losers", lbR, round.length);
+    let i = 0;
+    for (let e = 0; e < eliminations && i + 1 < entrants.length; e++, i += 2) {
+      const match = createMatch(mkId(), "preliminary-lb", roundIndex, round.length);
       match.feedA = entrants[i];
       match.feedB = entrants[i + 1];
-      match.isLbPrelim = true;
       round.push(match);
       matches.push(match);
       nextEntrants.push(feed(match, "winner"));
     }
-    if (entrants.length % 2 === 1) {
-      nextEntrants.push(entrants[entrants.length - 1]);
+    for (; i < entrants.length; i++) {
+      nextEntrants.push(entrants[i]);
     }
     if (round.length) rounds.push(round);
     entrants = nextEntrants;
     lbR++;
+    roundIndex++;
   }
 
   return { rounds, matches, survivors: entrants, nextLbR: lbR };
@@ -118,20 +115,18 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
   const wbSlots = wbRound || [];
   const targetWb = wbSlots.length;
   let lbFeeds = buildLbDropSideA(prev, options);
-  let r = lbR;
 
   if (targetWb > 0 && lbFeeds.length > targetWb) {
-    const prelim = buildLbEntrantPrelimRounds(lbFeeds, targetWb, r, mkId);
+    const prelim = buildLbEntrantPrelimRounds(lbFeeds, targetWb, 0, mkId);
     insertedRounds.push(...prelim.rounds);
     matches.push(...prelim.matches);
     lbFeeds = prelim.survivors;
-    r = prelim.nextLbR;
   }
 
   const round = [];
   const slotCount = targetWb > 0 ? Math.min(lbFeeds.length, targetWb) : lbFeeds.length;
   for (let slot = 0; slot < slotCount; slot++) {
-    const match = createMatch(mkId(), "losers", r, slot);
+    const match = createMatch(mkId(), "losers", lbR, slot);
     match.feedA = lbFeeds[slot];
     if (slot < wbSlots.length) {
       match.feedB = feed(wbSlots[slot], "loser");
@@ -146,7 +141,7 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
     round,
     insertedRounds,
     matches,
-    nextLbR: round.length ? r + 1 : r,
+    nextLbR: round.length ? lbR + 1 : lbR,
   };
 }
 
@@ -212,6 +207,7 @@ export function buildLbConsolidationRound(prevRound, lbR, mkId) {
  */
 export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options = {}) {
   const matches = [];
+  const lbPrelimRounds = [];
   let lbR = startLbR;
   let wbDrop = startWbDrop;
   let pendingSurvivor = options.survivorMatch || null;
@@ -222,14 +218,20 @@ export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options 
 
     const drop = buildLbDropRound(prev, wb[wbDrop], lbR, mkId, {
       survivorMatch: pendingSurvivor,
+      extraPrelimFeed:
+        options.extraPrelimFeed && wbDrop === options.prelimDropWbIndex
+          ? options.extraPrelimFeed
+          : null,
     });
     pendingSurvivor = null;
 
     for (const pr of drop.insertedRounds || []) {
-      lb[lbR] = pr;
-      lbR++;
+      lbPrelimRounds.push(pr);
     }
     if (drop.round.length) {
+      drop.round.forEach((m) => {
+        m.round = lbR;
+      });
       lb[lbR] = drop.round;
       lbR = drop.nextLbR;
     } else if (!drop.insertedRounds?.length) {
@@ -251,7 +253,7 @@ export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options 
     if (cons.survivor) pendingSurvivor = cons.survivor;
   }
 
-  return { matches, lbR, survivor: pendingSurvivor };
+  return { matches, lbR, survivor: pendingSurvivor, lbPrelimRounds };
 }
 
 /** Rondas LB completas desde cero (potencia de 2, sin prelim extra en lb[0]). */
@@ -361,12 +363,6 @@ export function rebuildLbFromDrop(bracket, mkId) {
   const nextId = () => mkId(seq++);
 
   const prelimFeed = bracket._prelimLbFeed || findPrelimLbFeed(bracket);
-  const bridgeHost =
-    bracket._prelimBridgeHost ??
-    (prelimFeed != null ? standardLb0Count(bracket) - 1 : -1);
-  let startLbR = 1;
-  let startWbDrop = 1;
-  const bridgeMatches = [];
 
   if (prelimFeed) {
     const solo = findPrelimSoloLb0(bracket);
@@ -379,23 +375,13 @@ export function rebuildLbFromDrop(bracket, mkId) {
     }
   }
 
-  if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost] && wb[1]) {
-    const layout = buildPrelimBridgeLayout(
-      bracket.lb[0],
-      wb[1],
-      bridgeHost,
-      prelimFeed,
-      nextId
-    );
-    bracket.lb[1] = layout.lb1;
-    bracket.lb[2] = layout.lb2;
-    bridgeMatches.push(...layout.matches);
-    startLbR = layout.startLbR;
-    startWbDrop = layout.startWbDrop;
-  }
-
-  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId);
-  bracket.matches.push(...bridgeMatches, ...ext.matches);
+  bracket.lbPrelimRounds = [];
+  const ext = extendLbRoundsFrom(wb, bracket.lb, 1, 1, nextId, {
+    extraPrelimFeed: prelimFeed || null,
+    prelimDropWbIndex: 1,
+  });
+  bracket.lbPrelimRounds = ext.lbPrelimRounds || [];
+  bracket.matches.push(...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
   bracket.matches.push(...tail.matches);
@@ -569,14 +555,14 @@ function wireLokitoPreserveConfirmed(bracket, mkId, hostIdx, prelimFeed, changed
     changed = true;
   }
 
-  let drop = bracket.lb[2]?.[hostIdx];
+  let drop = bracket.lb[1]?.[hostIdx];
   if (!drop) {
-    drop = createMatch(nextId(), "losers", 2, hostIdx);
+    drop = createMatch(nextId(), "losers", 1, hostIdx);
     drop.index = hostIdx;
-    if (!bracket.lb[2]) bracket.lb[2] = [];
-    while (bracket.lb[2].length < hostIdx) bracket.lb[2].push(null);
-    if (bracket.lb[2].length === hostIdx) bracket.lb[2].push(drop);
-    else bracket.lb[2][hostIdx] = drop;
+    if (!bracket.lb[1]) bracket.lb[1] = [];
+    while (bracket.lb[1].length < hostIdx) bracket.lb[1].push(null);
+    if (bracket.lb[1].length === hostIdx) bracket.lb[1].push(drop);
+    else bracket.lb[1][hostIdx] = drop;
     bracket.matches.push(drop);
     changed = true;
   }

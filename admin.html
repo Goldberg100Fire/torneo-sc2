@@ -1378,6 +1378,17 @@
             queueMicrotask(() =>
               showToast("Repechaje reordenado ronda a ronda. Revisa el cuadro y guarda.")
             );
+          } else {
+            const prog = window.BracketEngine.repairLbProgressionFromLb0(
+              state.bracket,
+              mkFix
+            );
+            if (prog?.changed) {
+              reconcileBracketMatches();
+              queueMicrotask(() =>
+                showToast("Repechaje reorganizado con preliminares. Revisa y guarda.")
+              );
+            }
           }
         }
       }
@@ -2387,9 +2398,13 @@
     }
 
     function losersFormatAt(ri) {
-      const pl = state.preliminary?.loserRounds?.length || 0;
-      if (ri < pl) return { section: "prelimLb", index: ri };
-      return { section: "lb", index: ri - pl };
+      const prelimWb = state.preliminary?.loserRounds?.length || 0;
+      if (ri < prelimWb) return { section: "prelimLb", index: ri };
+      const enginePrelim = state.bracket?.lbPrelimRounds?.length || 0;
+      const ri2 = ri - prelimWb;
+      if (ri2 < enginePrelim) return { section: "prelimLb", index: prelimWb + ri2 };
+      const lbRi = ri - prelimWb - enginePrelim;
+      return { section: "lb", index: lbRi };
     }
 
     function defaultRoundFormatsObject() {
@@ -2598,6 +2613,9 @@
       }
       if (state.preliminary?.loserRounds) {
         state.preliminary.loserRounds.forEach((round) => round.forEach(fn));
+      }
+      if (state.bracket?.lbPrelimRounds) {
+        state.bracket.lbPrelimRounds.forEach((round) => round.forEach(fn));
       }
       if (!state.bracket) return;
       state.bracket.wb?.forEach((round) => round.forEach(fn));
@@ -3857,6 +3875,7 @@
     function buildLosersRounds() {
       const rounds = [];
       if (state.preliminary?.loserRounds) rounds.push(...state.preliminary.loserRounds);
+      if (state.bracket?.lbPrelimRounds) rounds.push(...state.bracket.lbPrelimRounds);
       if (state.bracket?.lb) rounds.push(...state.bracket.lb);
       return rounds;
     }
@@ -3872,9 +3891,16 @@
     }
 
     function losersRoundLabel(ri) {
-      const prelimLen = state.preliminary?.loserRounds?.length || 0;
-      if (ri < prelimLen) return "Prelim. repechaje " + (ri + 1);
-      const lbRi = ri - prelimLen;
+      const prelimWbLb = state.preliminary?.loserRounds?.length || 0;
+      if (ri < prelimWbLb) {
+        return prelimWbLb > 1 ? "Prelim. repechaje " + (ri + 1) : "Prelim. repechaje";
+      }
+      const enginePrelim = state.bracket?.lbPrelimRounds?.length || 0;
+      const ri2 = ri - prelimWbLb;
+      if (ri2 < enginePrelim) {
+        return "Prelim. repechaje " + (ri + 1);
+      }
+      const lbRi = ri - prelimWbLb - enginePrelim;
       const round = state.bracket.lb[lbRi];
       return round?.length === 1 && lbRi === state.bracket.lb.length - 1
         ? "Final repechaje"

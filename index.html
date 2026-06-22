@@ -933,12 +933,18 @@
     let firestoreUnsub = null;
     let hubFirestoreUnsub = null;
 
-    let activeTournamentId =
-      window.TournamentTenant?.resolveTournamentIdFromSearch(location.search, {
-        defaultId: null,
-      }) || null;
-    let publicHubMode = !activeTournamentId;
+    let activeTournamentId = null;
+    let publicHubMode = true;
     let publicHubTournaments = [];
+
+    function refreshTournamentRouting() {
+      if (!window.TournamentTenant) return;
+      activeTournamentId =
+        window.TournamentTenant.resolveTournamentIdFromSearch(location.search, {
+          defaultId: null,
+        }) || null;
+      publicHubMode = !activeTournamentId;
+    }
 
     function isLegacyPrincipalTournament() {
       return !!(activeTournamentId && window.TournamentTenant?.isLegacyPrincipal(activeTournamentId));
@@ -1321,9 +1327,13 @@
     }
 
     function losersFormatAt(ri) {
-      const pl = state.preliminary?.loserRounds?.length || 0;
-      if (ri < pl) return { section: "prelimLb", index: ri };
-      return { section: "lb", index: ri - pl };
+      const prelimWb = state.preliminary?.loserRounds?.length || 0;
+      if (ri < prelimWb) return { section: "prelimLb", index: ri };
+      const enginePrelim = state.bracket?.lbPrelimRounds?.length || 0;
+      const ri2 = ri - prelimWb;
+      if (ri2 < enginePrelim) return { section: "prelimLb", index: prelimWb + ri2 };
+      const lbRi = ri - prelimWb - enginePrelim;
+      return { section: "lb", index: lbRi };
     }
 
     function defaultRoundFormatsObject() {
@@ -1453,7 +1463,36 @@
       refreshRoundFormatsFromState();
     }
 
+    function forEachBracketMatch(fn) {
+      if (state.preliminary?.rounds) {
+        state.preliminary.rounds.forEach((round) => round.forEach(fn));
+      }
+      if (state.preliminary?.loserRounds) {
+        state.preliminary.loserRounds.forEach((round) => round.forEach(fn));
+      }
+      if (state.bracket?.lbPrelimRounds) {
+        state.bracket.lbPrelimRounds.forEach((round) => round.forEach(fn));
+      }
+      if (!state.bracket) return;
+      state.bracket.wb?.forEach((round) => round.forEach(fn));
+      state.bracket.lb?.forEach((round) => round.forEach(fn));
+      if (state.bracket.grand) fn(state.bracket.grand);
+    }
+
+    function reconcileBracketMatches() {
+      if (!state.bracket) return;
+      const list = [];
+      const seen = new Set();
+      forEachBracketMatch((m) => {
+        if (!m?.id || seen.has(m.id)) return;
+        seen.add(m.id);
+        list.push(m);
+      });
+      state.bracket.matches = list;
+    }
+
     function getAllMatchesList() {
+      reconcileBracketMatches();
       const list = state.bracket ? [...state.bracket.matches] : [];
       if (state.preliminary?.rounds) {
         state.preliminary.rounds.forEach((round) => round.forEach((m) => list.push(m)));
@@ -2052,6 +2091,7 @@
         changed = false;
         for (const match of getAllMatchesList()) {
           if (match.confirmed) continue;
+          if (match.bracket === "losers") continue;
           const { a, b } = resolveMatchTeams(match);
           const aBye = a && teamById(a)?.isBye;
           const bBye = b && teamById(b)?.isBye;
@@ -2469,8 +2509,16 @@
     function buildLosersRounds() {
       const rounds = [];
       if (state.preliminary?.loserRounds) rounds.push(...state.preliminary.loserRounds);
+      if (state.bracket?.lbPrelimRounds) rounds.push(...state.bracket.lbPrelimRounds);
       if (state.bracket?.lb) rounds.push(...state.bracket.lb);
       return rounds;
+    }
+
+    function losersPrelimRoundCount() {
+      return (
+        (state.preliminary?.loserRounds?.length || 0) +
+        (state.bracket?.lbPrelimRounds?.length || 0)
+      );
     }
 
     function winnersRoundLabel(ri) {
@@ -2484,9 +2532,16 @@
     }
 
     function losersRoundLabel(ri) {
-      const prelimLen = state.preliminary?.loserRounds?.length || 0;
-      if (ri < prelimLen) return "Prelim. repechaje " + (ri + 1);
-      const lbRi = ri - prelimLen;
+      const prelimWbLb = state.preliminary?.loserRounds?.length || 0;
+      if (ri < prelimWbLb) {
+        return prelimWbLb > 1 ? "Prelim. repechaje " + (ri + 1) : "Prelim. repechaje";
+      }
+      const enginePrelim = state.bracket?.lbPrelimRounds?.length || 0;
+      const ri2 = ri - prelimWbLb;
+      if (ri2 < enginePrelim) {
+        return "Prelim. repechaje " + (ri + 1);
+      }
+      const lbRi = ri - prelimWbLb - enginePrelim;
       const round = state.bracket.lb[lbRi];
       return round?.length === 1 && lbRi === state.bracket.lb.length - 1
         ? "Final repechaje"
@@ -2801,9 +2856,11 @@
         return;
       }
 
-      section.hidden = false;
-      empty.hidden = true;
-      renderDrawInfoBanner();
+      try {
+        reconcileBracketMatches();
+        section.hidden = false;
+        empty.hidden = true;
+        renderDrawInfoBanner();
 
       const winnersTitle = document.getElementById("winnersTitle");
       if (winnersTitle && state.drawInfo?.targetSize) {
@@ -2848,6 +2905,15 @@
 
       checkChampion();
       scheduleBracketGuides();
+      } catch (e) {
+        console.error("renderBracket:", e);
+        section.hidden = true;
+        empty.hidden = false;
+        if (PUBLIC_VIEW) {
+          empty.querySelector(".empty-bracket").innerHTML =
+            "Error al mostrar el cuadro. <a href=\"javascript:location.reload()\" style=\"color:var(--accent)\">Recarga la página</a> o vuelve al <a href=\"index.html\" style=\"color:var(--accent)\">listado</a>.";
+        }
+      }
     }
 
     function subscribePublicFirestore() {
@@ -3085,6 +3151,7 @@
         }
         return;
       }
+      refreshTournamentRouting();
       initApp();
     }
 
