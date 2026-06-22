@@ -941,7 +941,13 @@
           String(t.id || "").toLowerCase().includes(q)
       );
       list.innerHTML = "";
-      if (empty) empty.hidden = filtered.length > 0;
+      if (empty) {
+        empty.hidden = filtered.length > 0;
+        if (!filtered.length && publicHubTournaments.length > 0) {
+          empty.textContent = "Ningún torneo coincide con la búsqueda.";
+          empty.hidden = false;
+        }
+      }
       filtered.forEach((t) => {
         const card = document.createElement("a");
         card.className = "hub-card";
@@ -960,20 +966,79 @@
       });
     }
 
-    async function loadPublicHubList() {
+    async function loadPublicHubFromFirestore() {
+      const cfg = window.FIREBASE_SC2_CONFIG;
+      if (!firebaseReady || !firestoreDb || !cfg?.enabled) return [];
       try {
-        const res = await fetch("/api/tournaments/public");
-        if (!res.ok) throw new Error("API " + res.status);
-        const json = await res.json();
-        publicHubTournaments = json.tournaments || [];
-        renderPublicHub();
+        const snap = await firestoreDb.collection(cfg.firestoreCollection).get();
+        const out = [];
+        snap.forEach((doc) => {
+          if (doc.id === "admin_roles") return;
+          const data = doc.data();
+          const payload = data.payload != null ? data.payload : data.data;
+          if (!hasBracketData(payload)) return;
+          out.push({
+            id: doc.id,
+            name:
+              data.name ||
+              payload?.tournamentName ||
+              (doc.id === "principal" ? "Torneo principal" : doc.id),
+            drawn: true,
+            teamCount: payload?.teams?.length || 0,
+            updatedAt: payload?.savedAt || null,
+          });
+        });
+        return out;
       } catch (e) {
-        console.warn("hub:", e);
-        const empty = document.getElementById("hubEmpty");
-        if (empty) {
-          empty.hidden = false;
-          empty.textContent = "No se pudo cargar la lista de torneos.";
+        console.warn("hub Firestore:", e);
+        return [];
+      }
+    }
+
+    async function loadPublicHubList() {
+      const empty = document.getElementById("hubEmpty");
+      let fromApi = [];
+      let apiError = false;
+
+      if (!isFileMode) {
+        try {
+          const res = await fetch("/api/tournaments/public");
+          if (res.ok) {
+            const json = await res.json();
+            fromApi = json.tournaments || [];
+          } else {
+            apiError = true;
+          }
+        } catch (e) {
+          console.warn("hub API:", e);
+          apiError = true;
         }
+      }
+
+      if (!firebaseReady) {
+        try {
+          await loadFirebaseSdk();
+          initFirebaseFromConfig();
+        } catch (e) {
+          console.warn("hub Firebase SDK:", e);
+        }
+      }
+
+      const fromFs = await loadPublicHubFromFirestore();
+      const byId = new Map();
+      [...fromApi, ...fromFs].forEach((t) => {
+        if (t?.id) byId.set(t.id, t);
+      });
+      publicHubTournaments = [...byId.values()].sort(
+        (a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0)
+      );
+      renderPublicHub();
+
+      if (empty && publicHubTournaments.length === 0) {
+        empty.hidden = false;
+        empty.textContent = apiError && !fromFs.length
+          ? "No se pudo cargar la lista. Comprueba la conexión o recarga la página."
+          : "Aún no hay torneos publicados con cuadro sorteado.";
       }
     }
 

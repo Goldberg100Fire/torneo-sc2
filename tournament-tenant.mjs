@@ -37,7 +37,12 @@ export function resolveTournamentIdFromSearch(search = "", options = {}) {
 }
 
 export function isTournamentPublished(payload) {
-  return !!(payload && payload.drawn);
+  if (!payload?.drawn) return false;
+  return !!(
+    payload.bracket?.wb?.length ||
+    payload.bracket?.matches?.length ||
+    payload.preliminary?.rounds?.length
+  );
 }
 
 export function storageKeyForTournament(tournamentId) {

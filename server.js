@@ -28,6 +28,35 @@ const FIRESTORE_COLLECTION = "torneos_sc2";
 const FIRESTORE_DOCUMENT_ID = "principal";
 const tournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
 
+function publicTournamentEntry(id, name, payload, updatedAt) {
+  if (!tournamentLib.hasBracketData(payload)) return null;
+  return {
+    id,
+    name: name || payload?.tournamentName || id,
+    drawn: true,
+    teamCount: payload?.teams?.length || 0,
+    updatedAt: updatedAt || payload?.savedAt || null,
+  };
+}
+
+async function readPublishedPrincipalEntry() {
+  const sqlite = readSqliteTournamentPayload();
+  const firestore = await readFirestoreTournamentPayload();
+  if (!sqlite && !firestore) return null;
+  const data =
+    firestore && sqlite
+      ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
+      : firestore?.data || sqlite?.data;
+  const updatedAt =
+    data?.savedAt || firestore?.updatedAt || sqlite?.updatedAt || null;
+  return publicTournamentEntry(
+    LEGACY_TOURNAMENT_ID,
+    data?.tournamentName || "Torneo principal",
+    data,
+    updatedAt
+  );
+}
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(DB_PATH);
@@ -393,28 +422,33 @@ app.delete("/api/tournament", async (req, res) => {
   res.json({ ok: true });
 });
 
-/** Catálogo público: solo torneos ut_* con cruces generados (sin `principal`). */
+/** Catálogo público: torneos con cuadro sorteado (principal + ut_*). */
 app.get("/api/tournaments/public", async (_req, res) => {
-  const admin = await initFirebaseAdmin();
-  if (!admin) return res.json({ tournaments: [] });
+  const tournaments = [];
   try {
-    const snap = await admin.firestore().collection(FIRESTORE_COLLECTION).get();
-    const tournaments = snap.docs
-      .filter((d) => isUserTournamentId(d.id))
-      .map((d) => {
+    const principal = await readPublishedPrincipalEntry();
+    if (principal) tournaments.push(principal);
+
+    const admin = await initFirebaseAdmin();
+    if (admin) {
+      const snap = await admin.firestore().collection(FIRESTORE_COLLECTION).get();
+      for (const d of snap.docs) {
+        if (!isUserTournamentId(d.id)) continue;
         const data = d.data();
         const payload = data.payload != null ? data.payload : data.data;
-        return {
-          id: d.id,
-          name: data.name || payload?.tournamentName || d.id,
-          drawn: !!payload?.drawn,
-          teamCount: payload?.teams?.length || 0,
-          updatedAt:
-            data.updatedAt?.toDate?.()?.toISOString?.() || payload?.savedAt || null,
-        };
-      })
-      .filter((t) => t.drawn)
-      .sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
+        const entry = publicTournamentEntry(
+          d.id,
+          data.name,
+          payload,
+          data.updatedAt?.toDate?.()?.toISOString?.() || payload?.savedAt || null
+        );
+        if (entry) tournaments.push(entry);
+      }
+    }
+
+    tournaments.sort(
+      (a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0)
+    );
     res.json({ tournaments });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -493,7 +527,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     auth.decoded &&
     (auth.decoded.uid === firestore.meta?.ownerUid ||
       (await verifySuperAdmin(auth.decoded)));
-  if (!firestore.data?.drawn && !isOwnerOrSuper) {
+  if (!tournamentLib.hasBracketData(firestore.data) && !isOwnerOrSuper) {
     return res.status(403).json({
       error: "Este torneo aún no está publicado (falta sortear cruces).",
       id,
@@ -507,7 +541,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     id,
     name: firestore.meta?.name || id,
     ownerUid: firestore.meta?.ownerUid || null,
-    published: !!firestore.data?.drawn,
+      published: !!tournamentLib.hasBracketData(firestore.data),
   });
 });
 
