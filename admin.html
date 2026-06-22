@@ -975,6 +975,38 @@
       vertical-align: middle;
     }
 
+    .test-tools-panel {
+      margin: 0 0 1.25rem;
+      padding: 1rem 1.25rem;
+      background: rgba(255, 107, 107, 0.06);
+      border: 1px solid rgba(255, 107, 107, 0.25);
+      border-radius: 8px;
+    }
+
+    .test-tools-panel h3 {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.95rem;
+      color: #ff8a8a;
+      margin: 0 0 0.35rem;
+    }
+
+    .test-tools-panel p {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin: 0 0 0.75rem;
+      line-height: 1.45;
+    }
+
+    .btn-danger {
+      color: #ff8a8a;
+      border-color: rgba(255, 138, 138, 0.45);
+    }
+
+    .btn-danger:hover {
+      background: rgba(255, 107, 107, 0.12);
+      border-color: #ff8a8a;
+    }
+
     .draw-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -1060,6 +1092,17 @@
   </div>
 
   <div id="publishBanner" class="publish-banner" hidden></div>
+
+  <section id="testToolsPanel" class="test-tools-panel" hidden>
+    <h3>PRUEBAS — ELIMINAR TORNEO</h3>
+    <p>
+      Borra el torneo activo (<code id="testToolsTournamentId"></code>) de Firestore y del listado público.
+      Útil para repetir pruebas. No afecta al torneo principal.
+    </p>
+    <button type="button" class="btn-ghost btn-danger" id="btnDeleteTournament">
+      Eliminar torneo activo
+    </button>
+  </section>
 
   <section id="staffSection" class="staff-panel" hidden>
     <div class="staff-toolbar">
@@ -1624,6 +1667,106 @@
       if (activeTournamentOwnerUid && activeTournamentOwnerUid === uid) return true;
       if (!activeTournamentOwnerUid && currentAdminRole === "editor") return true;
       return false;
+    }
+
+    function canDeleteTournament() {
+      if (isLegacyPrincipalTournament()) return false;
+      if (!window.TournamentTenant?.isUserTournamentId(activeTournamentId)) return false;
+      return canPublishToCloud();
+    }
+
+    function updateTestToolsPanel() {
+      const panel = document.getElementById("testToolsPanel");
+      const idEl = document.getElementById("testToolsTournamentId");
+      const btn = document.getElementById("btnDeleteTournament");
+      const show = canDeleteTournament();
+      if (panel) panel.hidden = !show;
+      if (idEl && show) {
+        idEl.textContent = activeTournamentName
+          ? activeTournamentName + " · " + activeTournamentId
+          : activeTournamentId;
+      }
+      if (btn) btn.disabled = !show;
+    }
+
+    async function deleteActiveTournament() {
+      if (!canDeleteTournament()) {
+        showToast("No puedes eliminar este torneo.");
+        return;
+      }
+      const label = activeTournamentName || activeTournamentId;
+      const ok = confirm(
+        "¿Eliminar permanentemente «" +
+          label +
+          "»?\n\n" +
+          "Se borra de Firestore y deja de verse en la vista pública.\n" +
+          "Esta acción no se puede deshacer."
+      );
+      if (!ok) return;
+
+      const deletedId = activeTournamentId;
+      const storageKey = getStorageKey();
+      const btn = document.getElementById("btnDeleteTournament");
+      const prevLabel = btn?.textContent;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Eliminando…";
+      }
+
+      try {
+        const headers = await apiAuthHeaders();
+        const res = await fetch(getApiUrl(), { method: "DELETE", headers });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || "HTTP " + res.status);
+
+        if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
+          try {
+            const ref = firestoreDb
+              .collection(window.FIREBASE_SC2_CONFIG.firestoreCollection)
+              .doc(deletedId);
+            await ref.delete();
+          } catch (e) {
+            console.warn("Firestore delete cliente:", e);
+          }
+        }
+
+        localStorage.removeItem(storageKey);
+
+        await refreshTournamentSelector();
+        const sel = document.getElementById("tournamentSelect");
+        const nextId = [...(sel?.options || [])]
+          .map((o) => o.value)
+          .find((id) => id && id !== deletedId);
+
+        if (nextId) {
+          await switchActiveTournament(nextId);
+        } else {
+          activeTournamentId = "";
+          activeTournamentName = "";
+          activeTournamentOwnerUid = null;
+          autoPublishAttempted = false;
+          const url = new URL(location.href);
+          url.searchParams.delete("t");
+          history.replaceState({}, "", url);
+          clearBracketState();
+          state.teams = [createTeam(), createTeam()];
+          teamIdCounter = 3;
+          state.savedAt = null;
+          renderAll();
+          updateTournamentBar();
+          updateTestToolsPanel();
+        }
+
+        showToast("Torneo eliminado: " + label);
+      } catch (e) {
+        showToast(e.message || "No se pudo eliminar el torneo");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = prevLabel || "Eliminar torneo activo";
+        }
+        updateTestToolsPanel();
+      }
     }
 
     function updatePublishBanner(cloudPayload) {
@@ -2232,6 +2375,7 @@
       renderStaffPanel();
       const resetBtn = document.getElementById("btnReset");
       if (resetBtn) resetBtn.hidden = !isSuperAdmin();
+      updateTestToolsPanel();
       if (isSuperAdmin()) refreshStaffPanel().catch(() => {});
     }
 
@@ -3407,6 +3551,7 @@
       } else if (hdr) {
         hdr.textContent = "TORNEO STARCRAFT";
       }
+      updateTestToolsPanel();
     }
 
     async function refreshTournamentSelector() {
@@ -4571,6 +4716,10 @@
 
     document.getElementById("btnNewTournament")?.addEventListener("click", () => {
       createUserTournament();
+    });
+
+    document.getElementById("btnDeleteTournament")?.addEventListener("click", () => {
+      deleteActiveTournament().catch((e) => showToast(e.message || "Error al eliminar"));
     });
 
     document.getElementById("btnSave").addEventListener("click", () => {
