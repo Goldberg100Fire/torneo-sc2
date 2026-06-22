@@ -43,56 +43,120 @@ export function buildLb0(wb, mkId) {
 }
 
 /**
- * A partir de lb[0] ya definido, genera lb[1..] y devuelve cruces nuevos.
+ * Cruce de repechaje con rival en la misma ronda (feed apunta a otro match del mismo round).
  */
-export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId) {
+export function findIntraRoundLbFeedIssues(bracket) {
+  const issues = [];
+  for (const round of bracket.lb || []) {
+    if (!round?.length) continue;
+    const ids = new Set(round.map((m) => m.id));
+    for (const m of round) {
+      for (const f of [m.feedA, m.feedB]) {
+        if (f && ids.has(f.matchId)) {
+          issues.push({ round: m.round, matchId: m.id, feedsFrom: f.matchId });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/** Ronda LB de bajadas: ganadores previos vs perdedores WB (sin feeds intra-ronda). */
+export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
+  const round = [];
+  const matches = [];
+  const bridgeHost = options.bridgeHostIndex ?? -1;
+  const bridgeMatch = options.bridgeMatch || null;
+  const slotCount = Math.max(prev.length, wbRound.length);
+
+  for (let slot = 0; slot < slotCount; slot++) {
+    const match = createMatch(mkId(), "losers", lbR, slot);
+    if (bridgeHost >= 0 && slot === bridgeHost && bridgeMatch) {
+      match.feedA = feed(bridgeMatch, "winner");
+      match.feedB = feed(wbRound[slot], "loser");
+    } else if (slot < prev.length) {
+      match.feedA = feed(prev[slot], "winner");
+      if (slot < wbRound.length) {
+        match.feedB = feed(wbRound[slot], "loser");
+      } else {
+        match.teamB = `bye-${match.id}`;
+      }
+    } else {
+      break;
+    }
+    round.push(match);
+    matches.push(match);
+  }
+
+  return { round, matches };
+}
+
+/** Empareja ganadores de la ronda anterior; impar recibe BYE (sin rival pendiente). */
+export function buildLbConsolidationRound(prevRound, lbR, mkId) {
+  const round = [];
+  const matches = [];
+  if (!prevRound?.length || prevRound.length === 1) {
+    return { round, matches };
+  }
+  const pairCount = Math.floor(prevRound.length / 2);
+  for (let i = 0; i < pairCount; i++) {
+    const match = createMatch(mkId(), "losers", lbR, i);
+    match.feedA = feed(prevRound[i * 2], "winner");
+    match.feedB = feed(prevRound[i * 2 + 1], "winner");
+    matches.push(match);
+    round.push(match);
+  }
+  if (prevRound.length % 2 === 1) {
+    const carry = createMatch(mkId(), "losers", lbR, round.length);
+    carry.feedA = feed(prevRound[prevRound.length - 1], "winner");
+    carry.teamB = `bye-${carry.id}`;
+    matches.push(carry);
+    round.push(carry);
+  }
+  return { round, matches };
+}
+
+/**
+ * A partir de lb[0] ya definido, genera lb[1..] y devuelve cruces nuevos.
+ * options.bridgeHostIndex + bridge en lb[bridgeRoundIndex]: bajada WB usa ganador del puente.
+ */
+export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options = {}) {
   const matches = [];
   const wbRounds = wb.length;
   let lbR = startLbR;
   let wbDrop = startWbDrop;
+  const bridgeHost = options.bridgeHostIndex ?? -1;
+  const bridgeRoundIndex = options.bridgeRoundIndex ?? -1;
 
   while (lbR < 20) {
     const prev = lb[lbR - 1];
     if (!prev?.length) break;
 
     if (wbDrop < wbRounds) {
-      lb[lbR] = [];
       const wbRound = wb[wbDrop];
-      let wi = 0;
-      for (let pi = 0; pi < prev.length; ) {
-        const match = createMatch(mkId(), "losers", lbR, lb[lbR].length);
-        match.feedA = feed(prev[pi++], "winner");
-        if (wi < wbRound.length) {
-          match.feedB = feed(wbRound[wi++], "loser");
-        } else if (pi < prev.length) {
-          match.feedB = feed(prev[pi++], "winner");
-        } else {
-          match.teamB = `bye-${match.id}`;
-        }
-        matches.push(match);
-        lb[lbR].push(match);
-      }
+      const bridgeMatch =
+        bridgeHost >= 0 && bridgeRoundIndex >= 0 && lbR === bridgeRoundIndex + 1
+          ? lb[bridgeRoundIndex]?.[0]
+          : null;
+      const prevForDrop =
+        bridgeMatch && bridgeRoundIndex === lbR - 1 ? lb[0] : prev;
+      const drop = buildLbDropRound(prevForDrop, wbRound, lbR, mkId, {
+        bridgeHostIndex: bridgeMatch ? bridgeHost : -1,
+        bridgeMatch,
+      });
+      lb[lbR] = drop.round;
+      matches.push(...drop.matches);
       lbR++;
       wbDrop++;
 
       const prev2 = lb[lbR - 1];
       if (prev2.length > 1) {
-        lb[lbR] = [];
-        const pairCount = Math.floor(prev2.length / 2);
-        for (let i = 0; i < pairCount; i++) {
-          const match = createMatch(mkId(), "losers", lbR, i);
-          match.feedA = feed(prev2[i * 2], "winner");
-          match.feedB = feed(prev2[i * 2 + 1], "winner");
-          matches.push(match);
-          lb[lbR].push(match);
+        const cons = buildLbConsolidationRound(prev2, lbR, mkId);
+        if (cons.round.length) {
+          lb[lbR] = cons.round;
+          matches.push(...cons.matches);
+          lbR++;
         }
-        if (prev2.length % 2 === 1) {
-          const carry = createMatch(mkId(), "losers", lbR, lb[lbR].length);
-          carry.feedA = feed(prev2[prev2.length - 1], "winner");
-          matches.push(carry);
-          lb[lbR].push(carry);
-        }
-        lbR++;
       }
     } else {
       break;
@@ -208,8 +272,28 @@ export function rebuildLbFromDrop(bracket, mkId) {
   let seq = bracket.matches.length;
   const nextId = () => mkId(seq++);
 
-  const ext = extendLbRoundsFrom(wb, bracket.lb, 1, 1, nextId);
-  bracket.matches.push(...ext.matches);
+  const prelimFeed = bracket._prelimLbFeed || null;
+  const bridgeHost =
+    bracket._prelimBridgeHost ??
+    (prelimFeed != null ? standardLb0Count(bracket) - 1 : -1);
+  let startLbR = 1;
+  let startWbDrop = 1;
+  const bridgeMatches = [];
+
+  if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost]) {
+    const bridge = createMatch(nextId(), "losers", 1, 0);
+    bridge.feedA = feed(bracket.lb[0][bridgeHost], "winner");
+    bridge.feedB = prelimFeed;
+    bracket.lb[1] = [bridge];
+    bridgeMatches.push(bridge);
+    startLbR = 2;
+  }
+
+  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId, {
+    bridgeHostIndex: prelimFeed ? bridgeHost : -1,
+    bridgeRoundIndex: prelimFeed ? 1 : -1,
+  });
+  bracket.matches.push(...bridgeMatches, ...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
   bracket.matches.push(...tail.matches);
@@ -319,9 +403,7 @@ function restoreLb1WbDropsIfPrelimStoleSlot(bracket, prelimFeed) {
 }
 
 /**
- * LB R1: 4 cruces intactos.
- * Puente LB R2: ganador(cruce host) vs Lokito.
- * Cruce LB R2 host: ganador(puente) vs perdedor WB (bajada Winners conservada).
+ * LB: puente en ronda propia; bajada WB en la siguiente (sin esperar cruce de la misma ronda).
  */
 export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
   restoreLb0IfPrelimMerged(bracket);
@@ -334,9 +416,7 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
 
   const hostIdx =
     hostLb0Index < 0 ? std - 1 : Math.min(hostLb0Index, std - 1);
-  const host = bracket.lb[0][hostIdx];
-  const wbDrop = bracket.wb?.[1]?.[hostIdx];
-  if (!host || !wbDrop) return { changed: false, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+  const hasConfirmed = lbHasAnyConfirmed(bracket);
 
   let changed = restoreLb1WbDropsIfPrelimStoleSlot(bracket, prelimFeed);
 
@@ -349,6 +429,25 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
     });
     changed = true;
   }
+
+  if (hasConfirmed) {
+    return wireLokitoPreserveConfirmed(bracket, mkId, hostIdx, prelimFeed, changed);
+  }
+
+  bracket._prelimLbFeed = prelimFeed;
+  bracket._prelimBridgeHost = hostIdx;
+  if (rebuildLbFromDrop(bracket, mkId)) changed = true;
+  delete bracket._prelimLbFeed;
+  delete bracket._prelimBridgeHost;
+
+  return { changed, preservedConfirmed: false };
+}
+
+/** Si ya hay LB jugado: solo enlaza sin reordenar rondas confirmadas. */
+function wireLokitoPreserveConfirmed(bracket, mkId, hostIdx, prelimFeed, changed) {
+  const host = bracket.lb[0][hostIdx];
+  const wbDrop = bracket.wb?.[1]?.[hostIdx];
+  if (!host || !wbDrop) return { changed, preservedConfirmed: true };
 
   if (!bracket.lb[1]) bracket.lb[1] = [];
 
@@ -391,7 +490,7 @@ export function wireLokitoVsLb0WinnerInLb1(bracket, mkId, hostLb0Index = -1) {
     }
   }
 
-  return { changed, preservedConfirmed: lbHasAnyConfirmed(bracket) };
+  return { changed, preservedConfirmed: true };
 }
 
 export function lbHasAnyConfirmed(bracket) {

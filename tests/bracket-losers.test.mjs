@@ -7,6 +7,7 @@ import {
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   validateLbWinnerDestinations,
+  findIntraRoundLbFeedIssues,
   wireLokitoVsLb0WinnerInLb1,
   createMatch,
 } from "../bracket-engine.mjs";
@@ -27,6 +28,7 @@ test("16 equipos: todos los cruces LB tienen destino de ganador", () => {
   );
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
   assert.equal(bracket.lb[0].length, 4);
+  assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
 test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () => {
@@ -57,9 +59,10 @@ test("18 equipos (prelim extra en lb[0]): lb[1] absorbe el cruce sobrante", () =
   assert.equal(bracket.lb[0].length, 5);
   assert.ok(bracket.lb[1].length >= 5, "LB R1 debe tener al menos 5 cruces");
   assert.deepEqual(validateLbWinnerDestinations(bracket), []);
+  assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
-test("lokito: puente vs ganador R1; cruce R2 sigue con bajada WB", () => {
+test("lokito: puente en ronda propia; bajada WB en la siguiente", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;
@@ -68,23 +71,24 @@ test("lokito: puente vs ganador R1; cruce R2 sigue con bajada WB", () => {
   solo.feedA = { matchId: "pre-0", slot: "loser" };
   lb0.push(solo);
   const bracket = { wb, lb: [lb0, []], matches: [...lb0, solo], grand: null };
-  bracket.lb[1][3] = createMatch(mk(), "losers", 1, 3);
-  bracket.lb[1][3].feedA = feed(lb0[3], "winner");
-  bracket.lb[1][3].feedB = feed(wb[1][3], "loser");
-  bracket.matches.push(bracket.lb[1][3]);
+  bracket._prelimLbFeed = solo.feedA;
 
   const wired = wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
 
   assert.equal(wired.changed, true);
   assert.equal(bracket.lb[0].length, 4);
   const host = bracket.lb[0][3];
-  const bridge = bracket.matches.find((m) => m.id?.startsWith("lb-lokito-bridge"));
+  const bridge = bracket.lb[1]?.[0];
   assert.ok(bridge);
+  assert.equal(bridge.round, 1);
   assert.equal(bridge.feedA?.matchId, host.id);
   assert.equal(bridge.feedB?.matchId, "pre-0");
-  const drop = bracket.lb[1][3];
+  const drop = bracket.lb[2]?.[3];
+  assert.ok(drop);
+  assert.equal(drop.round, 2);
   assert.equal(drop.feedB?.matchId, wb[1][3].id);
   assert.equal(drop.feedA?.matchId, bridge.id);
+  assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
 test("con LB confirmados: no borra ni altera partidos ya jugados", () => {

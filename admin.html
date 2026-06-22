@@ -2505,10 +2505,11 @@
       if (!window.BracketEngine || !bracket?.lb?.[0]?.length) return;
       let seq = bracket.matches.length;
       const mk = () => `m-${seq++}`;
-      window.BracketEngine.rebuildLbFromDrop(bracket, mk);
       if (bracket._prelimLbFeed) {
         window.BracketEngine.wireLokitoVsLb0WinnerInLb1(bracket, mk, -1);
         delete bracket._prelimLbFeed;
+      } else {
+        window.BracketEngine.rebuildLbFromDrop(bracket, mk);
       }
     }
 
