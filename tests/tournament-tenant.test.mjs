@@ -10,6 +10,7 @@ import {
   apiPathForTournament,
   publicViewUrl,
   emptyTournamentPayload,
+  isTournamentPublished,
 } from "../tournament-tenant.mjs";
 
 describe("tournament-tenant", () => {
@@ -34,8 +35,15 @@ describe("tournament-tenant", () => {
 
   it("resuelve ?t= desde la URL", () => {
     assert.equal(resolveTournamentIdFromSearch(""), LEGACY_TOURNAMENT_ID);
+    assert.equal(resolveTournamentIdFromSearch("", { defaultId: null }), null);
     assert.equal(resolveTournamentIdFromSearch("?t=ut_demo"), "ut_demo");
     assert.equal(resolveTournamentIdFromSearch("?foo=1"), LEGACY_TOURNAMENT_ID);
+  });
+
+  it("detecta torneo publicado", () => {
+    assert.equal(isTournamentPublished({ drawn: true }), true);
+    assert.equal(isTournamentPublished({ drawn: false }), false);
+    assert.equal(isTournamentPublished(null), false);
   });
 
   it("storage y API separados por torneo", () => {
@@ -46,7 +54,7 @@ describe("tournament-tenant", () => {
   });
 
   it("URL pública con parámetro t", () => {
-    assert.equal(publicViewUrl("principal"), "index.html");
+    assert.equal(publicViewUrl("principal"), "index.html?t=principal");
     assert.equal(publicViewUrl("ut_abc"), "index.html?t=ut_abc");
   });
 

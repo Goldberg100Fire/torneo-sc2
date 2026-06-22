@@ -52,7 +52,7 @@ service cloud.firestore {
 
     match /torneos_sc2/principal {
       allow read: if true;
-      allow write: if canWriteTournament();
+      allow write: if isSuperAdmin();
     }
 
     match /torneos_sc2/admin_roles {
@@ -71,7 +71,7 @@ service cloud.firestore {
       allow create: if docId.matches('ut_.*')
         && request.auth != null
         && request.auth.uid == request.resource.data.ownerUid;
-      allow update: if docId == 'principal' && canWriteTournament()
+      allow update: if docId == 'principal' && isSuperAdmin()
         || (docId.matches('ut_.*')
           && request.auth != null
           && request.auth.uid == resource.data.ownerUid)

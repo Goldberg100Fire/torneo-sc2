@@ -23,7 +23,9 @@ export function generateUserTournamentId() {
   );
 }
 
-export function resolveTournamentIdFromSearch(search = "") {
+export function resolveTournamentIdFromSearch(search = "", options = {}) {
+  const defaultId =
+    options.defaultId !== undefined ? options.defaultId : LEGACY_TOURNAMENT_ID;
   try {
     const params = new URLSearchParams(search);
     const t = params.get("t");
@@ -31,7 +33,11 @@ export function resolveTournamentIdFromSearch(search = "") {
   } catch (e) {
     /* ignore */
   }
-  return LEGACY_TOURNAMENT_ID;
+  return defaultId;
+}
+
+export function isTournamentPublished(payload) {
+  return !!(payload && payload.drawn);
 }
 
 export function storageKeyForTournament(tournamentId) {
@@ -45,7 +51,7 @@ export function apiPathForTournament(tournamentId) {
 }
 
 export function publicViewUrl(tournamentId, base = "index.html") {
-  if (isLegacyPrincipal(tournamentId)) return base;
+  if (isLegacyPrincipal(tournamentId)) return `${base}?t=principal`;
   return `${base}?t=${encodeURIComponent(tournamentId)}`;
 }
 

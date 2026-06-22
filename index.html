@@ -529,6 +529,85 @@
       border-radius: 4px;
     }
 
+    .tournament-hub {
+      margin-bottom: 2rem;
+      padding: 1.25rem;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+    }
+
+    .tournament-hub h2 {
+      font-family: "Orbitron", sans-serif;
+      color: var(--accent);
+      font-size: 1.1rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .tournament-hub > p {
+      color: var(--muted);
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+
+    .hub-search {
+      width: 100%;
+      max-width: 420px;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      padding: 0.55rem 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      border-radius: 4px;
+    }
+
+    .hub-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .hub-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .hub-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.15);
+    }
+
+    .hub-card strong {
+      font-family: "Orbitron", sans-serif;
+      color: var(--gold);
+      font-size: 0.95rem;
+    }
+
+    .hub-card span {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .hub-empty {
+      color: var(--muted);
+      padding: 1rem 0;
+    }
+
+    .hub-back {
+      margin-bottom: 1rem;
+    }
+
+    .view-hidden { display: none !important; }
+
     .team-card.readonly .player-name-text { color: var(--text); }
     .team-card.readonly input, .admin-only { display: none !important; }
 
@@ -694,6 +773,18 @@
   </header>
 
   <main>
+    <section id="tournamentHub" class="tournament-hub" hidden>
+      <h2>Torneos publicados</h2>
+      <p>Solo aparecen torneos con cruces ya sorteados. Busca y elige cuál quieres ver.</p>
+      <input type="search" class="hub-search" id="hubSearch" placeholder="Buscar por nombre…" autocomplete="off" />
+      <div class="hub-list" id="hubList"></div>
+      <p class="hub-empty" id="hubEmpty" hidden>Aún no hay torneos publicados.</p>
+    </section>
+
+    <div id="tournamentView">
+    <div class="hub-back" id="hubBackWrap" hidden>
+      <a href="index.html" class="btn-ghost" id="hubBackLink" style="display:inline-block;padding:0.45rem 0.85rem;border:1px solid var(--panel-border);border-radius:4px;color:var(--muted);text-decoration:none;">← Todos los torneos</a>
+    </div>
     <div class="toolbar" id="toolbar">
       <p class="format-info">
         <strong>Formatos:</strong> BO por ronda (configurado en el panel admin).
@@ -730,10 +821,11 @@
     </section>
 
     <section id="emptyBracket">
-      <div class="empty-bracket">
+      <div class="empty-bracket" id="emptyBracketMsg">
         Añade al menos 2 equipos con nombre y pulsa <strong>Sortear cruces</strong> para generar el cuadro.
       </div>
     </section>
+    </div>
   </main>
 
   <div class="toast" id="toast">Guardado en localStorage</div>
@@ -774,13 +866,18 @@
     let firestoreUnsub = null;
 
     let activeTournamentId =
-      window.TournamentTenant?.resolveTournamentIdFromSearch(location.search) || "principal";
+      window.TournamentTenant?.resolveTournamentIdFromSearch(location.search, {
+        defaultId: null,
+      }) || null;
+    let publicHubMode = !activeTournamentId;
+    let publicHubTournaments = [];
 
     function isLegacyPrincipalTournament() {
-      return window.TournamentTenant?.isLegacyPrincipal(activeTournamentId) ?? true;
+      return !!(activeTournamentId && window.TournamentTenant?.isLegacyPrincipal(activeTournamentId));
     }
 
     function getStorageKey() {
+      if (!activeTournamentId) return "sc2-tournament-hub";
       return (
         window.TournamentTenant?.storageKeyForTournament(activeTournamentId) ||
         "sc2-tournament-v2"
@@ -788,14 +885,115 @@
     }
 
     function getApiUrl() {
+      if (!activeTournamentId) return null;
       return window.TournamentTenant?.apiPathForTournament(activeTournamentId) || "/api/tournament";
     }
 
     function getFirestoreDocId() {
+      if (!activeTournamentId) return null;
       if (isLegacyPrincipalTournament()) {
         return window.FIREBASE_SC2_CONFIG?.firestoreDocumentId || "principal";
       }
       return activeTournamentId;
+    }
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function showPublicHub() {
+      publicHubMode = true;
+      document.getElementById("tournamentHub").hidden = false;
+      document.getElementById("tournamentView").classList.add("view-hidden");
+      const hdr = document.querySelector("header h1");
+      const sub = document.querySelector("header p");
+      if (hdr) hdr.textContent = "TORNEOS STARCRAFT";
+      if (sub) sub.textContent = "Elige un torneo publicado para ver el cuadro en vivo";
+      document.title = "Torneos publicados · StarCraft";
+      const el = document.getElementById("dbStatus");
+      if (el) {
+        el.textContent = "Catálogo de torneos";
+        el.className = "db-status";
+      }
+    }
+
+    function showTournamentView() {
+      publicHubMode = false;
+      document.getElementById("tournamentHub").hidden = true;
+      document.getElementById("tournamentView").classList.remove("view-hidden");
+      const back = document.getElementById("hubBackWrap");
+      if (back) back.hidden = isLegacyPrincipalTournament();
+    }
+
+    function renderPublicHub() {
+      const q = document.getElementById("hubSearch")?.value?.trim().toLowerCase() || "";
+      const list = document.getElementById("hubList");
+      const empty = document.getElementById("hubEmpty");
+      if (!list) return;
+      const filtered = publicHubTournaments.filter(
+        (t) =>
+          !q ||
+          String(t.name || "").toLowerCase().includes(q) ||
+          String(t.id || "").toLowerCase().includes(q)
+      );
+      list.innerHTML = "";
+      if (empty) empty.hidden = filtered.length > 0;
+      filtered.forEach((t) => {
+        const card = document.createElement("a");
+        card.className = "hub-card";
+        card.href = "index.html?t=" + encodeURIComponent(t.id);
+        const title = document.createElement("strong");
+        title.textContent = t.name || t.id;
+        const meta = document.createElement("span");
+        meta.textContent =
+          (t.teamCount || 0) +
+          " equipos · " +
+          (t.updatedAt
+            ? new Date(t.updatedAt).toLocaleDateString("es")
+            : "en curso");
+        card.append(title, meta);
+        list.appendChild(card);
+      });
+    }
+
+    async function loadPublicHubList() {
+      try {
+        const res = await fetch("/api/tournaments/public");
+        if (!res.ok) throw new Error("API " + res.status);
+        const json = await res.json();
+        publicHubTournaments = json.tournaments || [];
+        renderPublicHub();
+      } catch (e) {
+        console.warn("hub:", e);
+        const empty = document.getElementById("hubEmpty");
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = "No se pudo cargar la lista de torneos.";
+        }
+      }
+    }
+
+    function showUnpublishedMessage() {
+      showTournamentView();
+      document.getElementById("teamsSection").hidden = true;
+      document.getElementById("bracketSection").hidden = true;
+      const empty = document.getElementById("emptyBracket");
+      const msg = document.getElementById("emptyBracketMsg");
+      if (empty) empty.hidden = false;
+      if (msg) {
+        msg.innerHTML =
+          "Este torneo <strong>aún no está publicado</strong>. El organizador debe sortear los cruces primero.<br><br>" +
+          '<a href="index.html" style="color:var(--accent)">← Ver torneos publicados</a>';
+      }
+      const el = document.getElementById("dbStatus");
+      if (el) {
+        el.textContent = "No publicado";
+        el.className = "db-status offline";
+      }
     }
 
     function updatePublicHeader() {
@@ -1112,9 +1310,13 @@
 
     /** Carga torneo desde la API del servidor (rápido, sin esperar Firebase). */
     async function loadFromServerApi() {
-      if (isFileMode) return false;
+      if (isFileMode || !getApiUrl()) return false;
       try {
         const res = await fetch(getApiUrl());
+        if (res.status === 403) {
+          showUnpublishedMessage();
+          return false;
+        }
         if (!res.ok) return false;
         const json = await res.json();
         if (!json.data) return false;
@@ -1163,8 +1365,10 @@
     async function fetchCloudPayload() {
       let fromFirestore = null;
       let fromServer = null;
+      const apiUrl = getApiUrl();
+      if (!apiUrl) return null;
 
-      if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG) {
+      if (firebaseReady && firestoreDb && window.FIREBASE_SC2_CONFIG && getFirestoreDocId()) {
         const cfg = window.FIREBASE_SC2_CONFIG;
         try {
           const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
@@ -2417,7 +2621,7 @@
     }
 
     function subscribePublicFirestore() {
-      if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG) return;
+      if (!firebaseReady || !firestoreDb || !window.FIREBASE_SC2_CONFIG || !getFirestoreDocId()) return;
       const cfg = window.FIREBASE_SC2_CONFIG;
       const ref = firestoreDb.collection(cfg.firestoreCollection).doc(getFirestoreDocId());
       if (firestoreUnsub) firestoreUnsub();
@@ -2506,9 +2710,10 @@
     }
 
     async function pollServerTournament() {
-      if (isFileMode || PUBLIC_VIEW === false) return;
+      if (isFileMode || PUBLIC_VIEW === false || publicHubMode || !getApiUrl()) return;
       try {
         const res = await fetch(getApiUrl());
+        if (res.status === 403) return;
         if (!res.ok) return;
         const json = await res.json();
         if (!json.data) return;
@@ -2554,6 +2759,16 @@
       window.addEventListener("resize", scheduleBracketGuides);
       try {
         if (PUBLIC_VIEW) {
+          if (publicHubMode) {
+            showPublicHub();
+            loadPublicHubList();
+            document.getElementById("hubSearch")?.addEventListener("input", renderPublicHub);
+            if (!isFileMode) {
+              setInterval(loadPublicHubList, 60000);
+            }
+            return;
+          }
+          showTournamentView();
           loadFromLocalStorage();
           renderAll();
           updateStorageBadge();

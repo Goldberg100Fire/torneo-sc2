@@ -198,12 +198,7 @@ async function verifySuperAdmin(decoded) {
 
 async function verifyCanWriteTournament(decoded, tournamentId = LEGACY_TOURNAMENT_ID) {
   if (isLegacyPrincipal(tournamentId)) {
-    const data = await getAdminRolesData();
-    if (!data) return false;
-    const uid = decoded.uid;
-    return (
-      (data.superAdminUids || []).includes(uid) || (data.editorUids || []).includes(uid)
-    );
+    return verifySuperAdmin(decoded);
   }
   if (!isUserTournamentId(tournamentId)) return false;
   if (await verifySuperAdmin(decoded)) return true;
@@ -241,6 +236,15 @@ async function verifyAuthHeader(req) {
   } catch (e) {
     return { error: "Token inválido", status: 401 };
   }
+}
+
+async function optionalAuthHeader(req) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) return { decoded: null };
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) return { decoded: null };
+  return { decoded: auth.decoded };
 }
 
 const app = express();
@@ -295,7 +299,20 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.get("/api/tournament", async (_req, res) => {
+app.get("/api/tournament", async (req, res) => {
+  const auth = await optionalAuthHeader(req);
+  if (auth.decoded) {
+    const isSuper = await verifySuperAdmin(auth.decoded);
+    if (!isSuper) {
+      const roles = await getAdminRolesData();
+      if ((roles?.editorUids || []).includes(auth.decoded.uid)) {
+        return res.status(403).json({
+          error: "El torneo principal solo está disponible para el administrador principal.",
+        });
+      }
+    }
+  }
+
   const sqlite = readSqliteTournamentPayload();
   const firestore = await readFirestoreTournamentPayload();
 
@@ -376,6 +393,34 @@ app.delete("/api/tournament", async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Catálogo público: solo torneos ut_* con cruces generados (sin `principal`). */
+app.get("/api/tournaments/public", async (_req, res) => {
+  const admin = await initFirebaseAdmin();
+  if (!admin) return res.json({ tournaments: [] });
+  try {
+    const snap = await admin.firestore().collection(FIRESTORE_COLLECTION).get();
+    const tournaments = snap.docs
+      .filter((d) => isUserTournamentId(d.id))
+      .map((d) => {
+        const data = d.data();
+        const payload = data.payload != null ? data.payload : data.data;
+        return {
+          id: d.id,
+          name: data.name || payload?.tournamentName || d.id,
+          drawn: !!payload?.drawn,
+          teamCount: payload?.teams?.length || 0,
+          updatedAt:
+            data.updatedAt?.toDate?.()?.toISOString?.() || payload?.savedAt || null,
+        };
+      })
+      .filter((t) => t.drawn)
+      .sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
+    res.json({ tournaments });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Lista torneos del usuario (no incluye `principal`). */
 app.get("/api/tournaments", async (req, res) => {
   const auth = await verifyAuthHeader(req);
@@ -443,6 +488,18 @@ app.get("/api/tournaments/:id", async (req, res) => {
   if (!firestore) {
     return res.json({ data: null, updatedAt: null, source: "empty", id });
   }
+  const auth = await optionalAuthHeader(req);
+  const isOwnerOrSuper =
+    auth.decoded &&
+    (auth.decoded.uid === firestore.meta?.ownerUid ||
+      (await verifySuperAdmin(auth.decoded)));
+  if (!firestore.data?.drawn && !isOwnerOrSuper) {
+    return res.status(403).json({
+      error: "Este torneo aún no está publicado (falta sortear cruces).",
+      id,
+      published: false,
+    });
+  }
   res.json({
     data: firestore.data,
     updatedAt: firestore.updatedAt,
@@ -450,6 +507,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     id,
     name: firestore.meta?.name || id,
     ownerUid: firestore.meta?.ownerUid || null,
+    published: !!firestore.data?.drawn,
   });
 });
 

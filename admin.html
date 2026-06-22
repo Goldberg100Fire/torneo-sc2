@@ -1502,7 +1502,39 @@
     }
 
     function canEditTournament() {
+      if (isLegacyPrincipalTournament()) return isSuperAdmin();
       return currentAdminRole === "super" || currentAdminRole === "editor";
+    }
+
+    async function ensureEditorNotOnPrincipal() {
+      if (isSuperAdmin() || !isAdminLoggedIn()) return;
+      if (!isLegacyPrincipalTournament()) return;
+      try {
+        const token = await getIdToken();
+        const res = await fetch("/api/tournaments", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const list = json.tournaments || [];
+        if (list.length) {
+          await switchActiveTournament(list[0].id);
+          showToast("Abriendo tu torneo — el principal solo lo gestiona el admin principal.");
+          return;
+        }
+        activeTournamentId = "";
+        const url = new URL(location.href);
+        url.searchParams.delete("t");
+        history.replaceState({}, "", url);
+        clearBracketState();
+        state.teams = [createTeam(), createTeam()];
+        teamIdCounter = 3;
+        renderAll();
+        updateTournamentBar();
+        showToast("Crea tu torneo con «+ Crear mi torneo». El principal no está disponible para editores.");
+      } catch (e) {
+        console.warn("ensureEditorNotOnPrincipal:", e);
+      }
     }
 
     async function loadAdminRolesDoc() {
@@ -2967,11 +2999,18 @@
       if (sel && sel.value !== activeTournamentId) sel.value = activeTournamentId;
       if (hint) {
         hint.textContent = isLegacyPrincipalTournament()
-          ? "Torneo público en curso — no se altera al crear otros torneos."
-          : "Tu torneo privado (solo tú puedes editarlo).";
+          ? "Torneo principal — solo tú (admin principal) lo gestionas aquí."
+          : "Tu torneo — el público lo verá cuando sortees los cruces.";
       }
       if (link && window.TournamentTenant) {
-        link.href = window.TournamentTenant.publicViewUrl(activeTournamentId);
+        link.href = state.drawn
+          ? window.TournamentTenant.publicViewUrl(activeTournamentId)
+          : "#";
+        link.style.pointerEvents = state.drawn ? "" : "none";
+        link.style.opacity = state.drawn ? "1" : "0.45";
+        link.title = state.drawn
+          ? "Abrir vista pública"
+          : "Publica el torneo sorteando cruces primero";
       }
       const hdr = document.querySelector("header h1");
       if (hdr && activeTournamentName && !isLegacyPrincipalTournament()) {
@@ -2986,10 +3025,12 @@
       if (!sel) return;
       const prev = activeTournamentId;
       sel.innerHTML = "";
-      const optP = document.createElement("option");
-      optP.value = "principal";
-      optP.textContent = "Torneo principal (público)";
-      sel.appendChild(optP);
+      if (isSuperAdmin()) {
+        const optP = document.createElement("option");
+        optP.value = "principal";
+        optP.textContent = "Torneo principal (solo admin principal)";
+        sel.appendChild(optP);
+      }
       if (isAdminLoggedIn()) {
         try {
           const token = await getIdToken();
@@ -3015,6 +3056,12 @@
 
     async function switchActiveTournament(newId) {
       if (!newId || newId === activeTournamentId) return;
+      if (newId === "principal" && !isSuperAdmin()) {
+        showToast("El torneo principal solo lo gestiona el admin principal.");
+        const sel = document.getElementById("tournamentSelect");
+        if (sel) sel.value = activeTournamentId || "";
+        return;
+      }
       activeTournamentId = newId;
       activeTournamentName = "";
       const url = new URL(location.href);
@@ -3074,6 +3121,7 @@
         teamIdCounter = 3;
         persistLocal(empty);
         await refreshTournamentSelector();
+        await ensureEditorNotOnPrincipal();
         document.getElementById("tournamentSelect").value = json.id;
         renderAll();
         showToast("Torneo creado. Empareja o sortea cuando quieras.");
@@ -3276,6 +3324,7 @@
 
       const { okFb, okSql } = await persistRemote(payload);
       renderBracket();
+      updateTournamentBar();
 
       const parts = ["Sorteo listo"];
       if (okFb) parts.push("Firestore");
@@ -4130,6 +4179,7 @@
           activeTournamentName = state.drawInfo?.tournamentName || "";
         }
         await refreshTournamentSelector();
+        await ensureEditorNotOnPrincipal();
         if (!state.teams?.length) {
           loadFromLocalStorage();
           ensureDefaultTeams();
@@ -4219,6 +4269,7 @@
               document.getElementById("adminUserLabel").textContent = user.email;
               applyRoleUI();
               await refreshTournamentSelector();
+        await ensureEditorNotOnPrincipal();
               await initAdminApp();
             } catch (e) {
               errEl.textContent = e.message || "Error al verificar permisos";
