@@ -11,6 +11,8 @@ import {
   publicViewUrl,
   emptyTournamentPayload,
   isTournamentPublished,
+  MIN_TEAMS_FOR_DRAW,
+  BRACKET_SIZES,
 } from "../tournament-tenant.mjs";
 
 describe("tournament-tenant", () => {
@@ -71,5 +73,10 @@ describe("tournament-tenant", () => {
     assert.equal(p.drawn, false);
     assert.equal(p.bracket, null);
     assert.ok(Array.isArray(p.teams));
+  });
+
+  it("mínimo 8 equipos para sortear", () => {
+    assert.equal(MIN_TEAMS_FOR_DRAW, 8);
+    assert.ok(BRACKET_SIZES.includes(8));
   });
 });

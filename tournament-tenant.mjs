@@ -2,6 +2,9 @@
  * Torneos por usuario: el documento `principal` sigue siendo el torneo en producción.
  */
 
+export const MIN_TEAMS_FOR_DRAW = 8;
+
+export const BRACKET_SIZES = [8, 16, 32, 64];
 export const LEGACY_TOURNAMENT_ID = "principal";
 export const USER_TOURNAMENT_PREFIX = "ut_";
 

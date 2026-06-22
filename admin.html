@@ -1146,8 +1146,9 @@
       <p class="format-info">
         <strong>Formatos:</strong> elige BO3 / BO5 / BO7 / BO9 en cada columna del cuadro
         (gran final BO9: campeón Winners empieza 1–0 en mapas).
-        <strong>8 / 16 / 32 / 64 equipos:</strong> sorteo directo.
-        <strong>Otra cantidad:</strong> preliminar hasta la potencia más cercana; perdedores van a repechaje preliminar.
+        <strong>Mínimo 8 equipos con nombre</strong> para sortear (con 8 empiezas en cuartos).
+        <strong>8 / 16 / 32 / 64:</strong> sorteo directo.
+        <strong>9, 10, 12, 18…:</strong> preliminar automática; cualquier cantidad válida se puede publicar.
         El sorteo se guarda en el navegador y, con sesión admin, se publica en Firestore para la vista pública.
       </p>
       <button type="button" class="btn-gold" id="btnDraw">Sortear / emparejar</button>
@@ -1193,7 +1194,7 @@
 
     <section id="emptyBracket">
       <div class="empty-bracket">
-        Añade al menos 2 equipos con nombre y pulsa <strong>Sortear cruces</strong> para generar el cuadro.
+        Añade al menos <strong>8 equipos con nombre</strong> y pulsa <strong>Sortear / emparejar</strong> para generar el cuadro (cuartos con 8 equipos).
       </div>
     </section>
   </main>
@@ -1268,7 +1269,8 @@
     /** true = abriste index.html con doble clic (sin servidor Node) */
     const isFileMode = location.protocol === "file:";
 
-    const BRACKET_SIZES = [8, 16, 32, 64];
+    const BRACKET_SIZES = window.TournamentTenant?.BRACKET_SIZES || [8, 16, 32, 64];
+    const MIN_TEAMS_FOR_DRAW = window.TournamentTenant?.MIN_TEAMS_FOR_DRAW ?? 8;
 
     const state = {
       teams: [],
@@ -1359,12 +1361,28 @@
     }
 
     function getTargetSize(n) {
+      if (n < MIN_TEAMS_FOR_DRAW) return null;
       if (BRACKET_SIZES.includes(n)) return n;
       if (n > 64) return null;
       if (n > 32) return 32;
       if (n > 16) return 16;
       if (n > 8) return 8;
       return 8;
+    }
+
+    function countNamedTeams() {
+      syncTeamsFromDOM();
+      return state.teams.filter((t) => t.name.trim()).length;
+    }
+
+    function minTeamsDrawMessage(n = countNamedTeams()) {
+      return (
+        "Necesitas al menos " +
+        MIN_TEAMS_FOR_DRAW +
+        " equipos con nombre para sortear (tienes " +
+        n +
+        "). Con 8 equipos el cuadro empieza en cuartos; con 9 o más se añade preliminar automática."
+      );
     }
 
     function readLocalPayload() {
@@ -3213,6 +3231,9 @@
 
     function buildTournamentDraw(teamIds, options = {}) {
       const n = teamIds.length;
+      if (n < MIN_TEAMS_FOR_DRAW) {
+        return { error: minTeamsDrawMessage(n) };
+      }
       const randomOrder = options.randomOrder !== false;
       const order = options.teamOrder?.length
         ? options.teamOrder.filter((id) => teamIds.includes(id))
@@ -3527,12 +3548,23 @@
             ? "Cuadro publicado — el público ya puede verlo en Vista pública."
             : "Cuadro listo — pulsa Publicar en la nube para que otros navegadores lo vean.";
         } else {
-          const n = state.teams?.filter((t) => t.name?.trim()).length || 0;
+          const n = countNamedTeams();
           hint.textContent =
-            n >= 2
+            n >= MIN_TEAMS_FOR_DRAW
               ? `Paso 2: tienes ${n} equipos — pulsa Sortear / emparejar para publicar el cuadro.`
-              : "Paso 1: añade equipos con nombre, luego Sortear / emparejar.";
+              : n > 0
+                ? `Paso 1: ${n}/${MIN_TEAMS_FOR_DRAW} equipos con nombre (mínimo 8 para sortear cuartos).`
+                : `Paso 1: añade al menos ${MIN_TEAMS_FOR_DRAW} equipos con nombre (cantidad libre: 8, 9, 12, 18…).`;
         }
+      }
+      const btnDraw = document.getElementById("btnDraw");
+      if (btnDraw) {
+        const named = countNamedTeams();
+        btnDraw.disabled = named < MIN_TEAMS_FOR_DRAW;
+        btnDraw.title =
+          named >= MIN_TEAMS_FOR_DRAW
+            ? "Generar cruces del cuadro"
+            : minTeamsDrawMessage(named);
       }
       if (link && window.TournamentTenant) {
         const ready = hasBracketData(state);
@@ -3671,8 +3703,8 @@
     function openDrawModeDialog() {
       syncTeamsFromDOM();
       const valid = state.teams.filter((t) => t.name.trim());
-      if (valid.length < 2) {
-        alert("Necesitas al menos 2 equipos con nombre.");
+      if (valid.length < MIN_TEAMS_FOR_DRAW) {
+        alert(minTeamsDrawMessage(valid.length));
         return;
       }
       const backdrop = document.createElement("div");
@@ -4003,8 +4035,8 @@
     async function drawBracket(drawOptions = {}) {
       syncTeamsFromDOM();
       const valid = state.teams.filter((t) => t.name.trim());
-      if (valid.length < 2) {
-        alert("Necesitas al menos 2 equipos con nombre.");
+      if (valid.length < MIN_TEAMS_FOR_DRAW) {
+        alert(minTeamsDrawMessage(valid.length));
         return;
       }
 
