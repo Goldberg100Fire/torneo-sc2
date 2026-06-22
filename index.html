@@ -1232,12 +1232,21 @@
       document.getElementById("bracketSection").hidden = true;
       const empty = document.getElementById("emptyBracket");
       const msg = document.getElementById("emptyBracketMsg");
+      const name = resolveTournamentDisplayName() || "Este torneo";
+      const adminUrl =
+        activeTournamentId && window.TournamentTenant
+          ? window.TournamentTenant.adminViewUrl(activeTournamentId)
+          : "admin.html";
       if (empty) empty.hidden = false;
       if (msg) {
         msg.innerHTML =
-          "Este torneo <strong>aún no tiene cuadro publicado en la nube</strong>. " +
-          "Si eres el organizador, abre el panel de admin, inicia sesión y pulsa <strong>Publicar en la nube</strong> " +
-          "(o vuelve a sortear con sesión iniciada).<br><br>" +
+          "<strong>" +
+          escapeHtml(name) +
+          "</strong> existe, pero <strong>el cuadro aún no está publicado en la nube</strong>. " +
+          "Solo se ve en el navegador del organizador hasta que publique.<br><br>" +
+          "Organizador: abre <a href=\"" +
+          escapeHtml(adminUrl) +
+          "\" style=\"color:var(--accent)\">panel admin</a>, inicia sesión y pulsa <strong>Publicar en la nube</strong>.<br><br>" +
           '<a href="index.html" style="color:var(--accent)">← Ver todos los torneos</a>';
       }
       const el = document.getElementById("dbStatus");
@@ -1607,7 +1616,15 @@
       if (isFileMode || !getApiUrl()) return false;
       try {
         const res = await fetch(getApiUrl());
-        if (res.status === 403) return false;
+        if (res.status === 403) {
+          try {
+            const json = await res.json();
+            if (json.name) publicTournamentMeta.name = json.name;
+          } catch (e) {
+            /* ignore */
+          }
+          return false;
+        }
         if (!res.ok) return false;
         const json = await res.json();
         if (json.name) publicTournamentMeta.name = json.name;

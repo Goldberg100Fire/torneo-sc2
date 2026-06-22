@@ -956,6 +956,25 @@
       min-width: 180px;
     }
 
+    .publish-banner {
+      padding: 0.85rem 1.25rem;
+      background: rgba(255, 180, 0, 0.12);
+      border-bottom: 1px solid rgba(255, 180, 0, 0.35);
+      color: var(--text);
+      font-size: 0.92rem;
+      text-align: center;
+      line-height: 1.45;
+    }
+
+    .publish-banner strong {
+      color: var(--gold);
+    }
+
+    .publish-banner .btn-gold {
+      margin-left: 0.5rem;
+      vertical-align: middle;
+    }
+
     .draw-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -1039,6 +1058,8 @@
     <a class="btn-ghost" id="publicTournamentLink" href="index.html" target="_blank" rel="noopener">Vista pública</a>
     <span class="tournament-bar-hint" id="tournamentBarHint"></span>
   </div>
+
+  <div id="publishBanner" class="publish-banner" hidden></div>
 
   <section id="staffSection" class="staff-panel" hidden>
     <div class="staff-toolbar">
@@ -1220,6 +1241,7 @@
     let saveTimer = null;
     let saveGeneration = 0;
     let lastRemoteSave = { okFb: null, okSql: null, at: null };
+    let autoPublishAttempted = false;
     let firebaseReady = false;
     let firestoreDb = null;
     let firebaseAuth = null;
@@ -1600,6 +1622,62 @@
       if (!uid) return false;
       if (activeTournamentOwnerUid && activeTournamentOwnerUid === uid) return true;
       if (!activeTournamentOwnerUid && currentAdminRole === "editor") return true;
+      return false;
+    }
+
+    function updatePublishBanner(cloudPayload) {
+      const banner = document.getElementById("publishBanner");
+      if (!banner) return;
+      const localHas = hasBracketData(readLocalPayload()) || hasBracketData(state);
+      const cloudHas = hasBracketData(cloudPayload);
+      if (!localHas || cloudHas) {
+        banner.hidden = true;
+        return;
+      }
+      banner.hidden = false;
+      const pubUrl =
+        window.TournamentTenant?.publicViewUrl(activeTournamentId) ||
+        "index.html?t=" + encodeURIComponent(activeTournamentId);
+      if (!isAdminLoggedIn()) {
+        banner.innerHTML =
+          "<strong>Cuadro solo en este navegador.</strong> Inicia sesión como organizador para publicarlo en la nube.";
+        return;
+      }
+      if (!canPublishToCloud()) {
+        banner.innerHTML =
+          "<strong>Cuadro solo en este navegador.</strong> Solo el dueño del torneo puede publicarlo en la nube.";
+        return;
+      }
+      banner.innerHTML =
+        "<strong>El público aún no ve este cuadro</strong> (otros navegadores están vacíos). " +
+        "Pulsa <strong>Publicar en la nube</strong> o el botón de abajo. " +
+        '<button type="button" class="btn-gold" id="btnPublishBanner">Publicar ahora</button> ' +
+        '<a href="' +
+        pubUrl +
+        '" target="_blank" rel="noopener" style="color:var(--accent);margin-left:0.5rem;">Probar vista pública</a>';
+      document.getElementById("btnPublishBanner")?.addEventListener("click", () => {
+        flushSaveToRemote(false).catch((e) => showToast(e.message || "Error al publicar"));
+      });
+    }
+
+    async function maybeAutoPublishToCloud(cloudPayload) {
+      updatePublishBanner(cloudPayload);
+      const localHas = hasBracketData(readLocalPayload()) || hasBracketData(state);
+      const cloudHas = hasBracketData(cloudPayload);
+      if (!localHas || cloudHas) return false;
+      if (!isAdminLoggedIn() || !canPublishToCloud()) return false;
+      if (autoPublishAttempted) return false;
+      autoPublishAttempted = true;
+      showToast("Publicando cuadro en la nube para la vista pública…");
+      await flushSaveToRemote(true);
+      const cloudAfter = await fetchCloudPayload();
+      updatePublishBanner(cloudAfter);
+      if (hasBracketData(cloudAfter)) {
+        showToast("Cuadro publicado — ya visible en otros navegadores");
+        return true;
+      }
+      autoPublishAttempted = false;
+      showToast("No se pudo publicar — pulsa Publicar en la nube");
       return false;
     }
 
@@ -3341,6 +3419,7 @@
       activeTournamentId = newId;
       activeTournamentName = "";
       activeTournamentOwnerUid = null;
+      autoPublishAttempted = false;
       const url = new URL(location.href);
       if (isLegacyPrincipalTournament()) url.searchParams.delete("t");
       else url.searchParams.set("t", newId);
@@ -3782,12 +3861,15 @@
       }
       showToast(parts.join(" · "));
       if (!okFb && !okSql) {
+        updatePublishBanner(await fetchCloudPayload());
         alert(
           "El cuadro quedó guardado SOLO en este navegador.\n\n" +
             "Para que cualquier persona lo vea en otro dispositivo:\n" +
-            "1) Inicia sesión como admin\n" +
+            "1) Inicia sesión como organizador (dueño del torneo)\n" +
             "2) Pulsa «Publicar en la nube»"
         );
+      } else {
+        updatePublishBanner(await fetchCloudPayload());
       }
     }
 
@@ -4619,6 +4701,9 @@
       if (firebaseReady && window.FIREBASE_SC2_CONFIG?.enabled === true && !merged) {
         showToast("Conectado a Firebase Firestore");
       }
+
+      await maybeAutoPublishToCloud(cloud);
+      return cloud;
     }
 
     function loadScript(src) {

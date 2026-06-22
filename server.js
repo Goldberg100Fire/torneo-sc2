@@ -583,6 +583,7 @@ app.get("/api/tournaments/:id", async (req, res) => {
     return res.status(403).json({
       error: "Este torneo aún no está publicado (falta sortear cruces).",
       id,
+      name: firestore.meta?.name || id,
       published: false,
     });
   }
