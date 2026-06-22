@@ -1,0 +1,13 @@
+---
+description: Subir cambios a Git automáticamente tras cada modificación
+alwaysApply: true
+---
+
+# Git automático
+
+Tras completar cambios de código en este proyecto:
+
+1. Haz commit y push a `origin/main` sin preguntar al usuario.
+2. Usa mensajes de commit breves que expliquen el porqué.
+3. No hagas push con `--force` a main.
+4. No subas archivos con secretos (.env, credenciales).
