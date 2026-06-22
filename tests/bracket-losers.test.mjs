@@ -3,13 +3,15 @@ import assert from "node:assert/strict";
 import {
   buildDoubleElimBracket,
   buildLb0,
+  buildLbEntrantFeeds,
+  buildLbPoolReduction,
   feed,
-  computeLbPlayInNeeded,
-  repairBrokenLbPrelimRounds,
+  planWinnersPrelimDraw,
   rebuildLbFromDrop,
   repairOrphanPrelimLbEntries,
   repairOrphanWbLosersToLb,
   repairLbProgressionFromLb0,
+  setupLosersPoolForWbPrelims,
   findOrphanWbLosers,
   validateLbWinnerDestinations,
   findIntraRoundLbFeedIssues,
@@ -46,7 +48,44 @@ test("16 equipos: todos los cruces LB tienen destino de ganador", () => {
   assert.deepEqual(findIntraRoundLbFeedIssues(bracket), []);
 });
 
-test("18 equipos: play-in prelim y bajada WB en LB R2", () => {
+test("18 equipos: 2 WB prelims y pool repechaje 10→8 sin BYE", () => {
+  const plan = planWinnersPrelimDraw(18, 16);
+  assert.equal(plan.prelimPairCount, 2);
+  assert.equal(plan.directCount, 14);
+  assert.equal(plan.prelimTeamCount, 4);
+
+  const wb = makeWb16();
+  let seq = 0;
+  const mk = () => `m-${seq++}`;
+  const wbPrelims = [
+    createMatch("pre-0", "preliminary", 0, 0),
+    createMatch("pre-1", "preliminary", 0, 1),
+  ];
+  const feeds = buildLbEntrantFeeds(wbPrelims, wb[0]);
+  assert.equal(feeds.length, 10);
+
+  const reduced = buildLbPoolReduction(feeds, wb[0].length, mk);
+  assert.equal(reduced.loserRounds.length, 1);
+  assert.equal(reduced.loserRounds[0].length, 2);
+  assert.equal(reduced.lb0.length, 4);
+  assert.equal(reduced.survivorFeeds.length, 8);
+  assert.ok(
+    !reduced.matches.some((m) => m.teamB?.startsWith?.("bye-") || m.teamA?.startsWith?.("bye-"))
+  );
+
+  const bracket = buildDoubleElimBracket(
+    Array.from({ length: 16 }, (_, i) => `t${i}`),
+    mk
+  );
+  const built = setupLosersPoolForWbPrelims(bracket, wbPrelims, mk);
+  assert.equal(built.loserRounds[0].length, 2);
+  assert.equal(bracket.lb[0].length, 4);
+  assert.equal(bracket._lbPoolReduction, true);
+  assert.deepEqual(findOrphanWbLosers(bracket), []);
+  assert.deepEqual(validateLbWinnerDestinations(bracket), []);
+});
+
+test("18 equipos: play-in legacy (torneos antiguos)", () => {
   const wb = makeWb16();
   let seq = 0;
   const mk = () => `m-${seq++}`;

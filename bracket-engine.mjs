@@ -85,6 +85,118 @@ export function computeLbPlayInNeeded(lb0MatchCount, prelimChampSlots, wbDropCou
   return Math.max(0, lb0MatchCount + prelimChampSlots - wbDropCount);
 }
 
+/** Cruces WB preliminares en el cuadro principal: uno por cada equipo que sobra. */
+export function planWinnersPrelimDraw(teamCount, targetSize) {
+  const excess = Math.max(0, teamCount - targetSize);
+  const prelimPairCount = excess;
+  const directCount = targetSize - prelimPairCount;
+  const prelimTeamCount = prelimPairCount * 2;
+  return { excess, prelimPairCount, directCount, prelimTeamCount };
+}
+
+/**
+ * Lista de feeds de perdedores que entran al repechaje antes de LB R1:
+ * cada perdedor WB prelim se empareja en reducción con un perdedor de octavos.
+ */
+export function buildLbEntrantFeeds(wbPrelimMatches, wbRound0) {
+  const feeds = [];
+  const prelimCount = wbPrelimMatches?.length || 0;
+  const octavos = wbRound0 || [];
+  for (let i = 0; i < prelimCount; i++) {
+    feeds.push(feed(wbPrelimMatches[i], "loser"));
+    if (octavos[i]) feeds.push(feed(octavos[i], "loser"));
+  }
+  for (let i = prelimCount; i < octavos.length; i++) {
+    feeds.push(feed(octavos[i], "loser"));
+  }
+  return feeds;
+}
+
+export function buildLb0FromFeeds(survivorFeeds, mkId) {
+  const lb0 = [];
+  const matches = [];
+  for (let i = 0; i < survivorFeeds.length; i += 2) {
+    if (!survivorFeeds[i + 1]) break;
+    const match = createMatch(mkId(), "losers", 0, lb0.length);
+    match.feedA = survivorFeeds[i];
+    match.feedB = survivorFeeds[i + 1];
+    matches.push(match);
+    lb0.push(match);
+  }
+  return { lb0, matches };
+}
+
+/**
+ * Reduce el pool de repechaje (p. ej. 10→8) con preliminares LB reales, sin BYE.
+ * targetSurvivors = plazas en LB R1 (pares de octavos = wb[0].length).
+ */
+export function buildLbPoolReduction(entrantFeeds, targetSurvivors, mkId, createPrelimMatch) {
+  const eliminations = Math.max(0, entrantFeeds.length - targetSurvivors);
+  const loserRounds = [];
+  const prelimMatches = [];
+
+  if (eliminations <= 0) {
+    const built = buildLb0FromFeeds(entrantFeeds, mkId);
+    return {
+      loserRounds,
+      survivorFeeds: entrantFeeds,
+      lb0: built.lb0,
+      matches: built.matches,
+    };
+  }
+
+  const round = [];
+  for (let i = 0; i < eliminations; i++) {
+    const m = createPrelimMatch
+      ? createPrelimMatch(i, loserRounds.length)
+      : createMatch(mkId(), "preliminary-lb", loserRounds.length, i);
+    m.feedA = entrantFeeds[i * 2];
+    m.feedB = entrantFeeds[i * 2 + 1];
+    m.bestOf = 5;
+    round.push(m);
+    prelimMatches.push(m);
+  }
+  loserRounds.push(round);
+
+  const bypass = entrantFeeds.slice(eliminations * 2);
+  const winners = round.map((m) => feed(m, "winner"));
+  const survivorFeeds = [...bypass, ...winners];
+  const built = buildLb0FromFeeds(survivorFeeds, mkId);
+
+  return {
+    loserRounds,
+    survivorFeeds,
+    lb0: built.lb0,
+    matches: [...prelimMatches, ...built.matches],
+  };
+}
+
+/** Sustituye lb[0] y devuelve rondas prelim LB para preliminary.loserRounds. */
+export function setupLosersPoolForWbPrelims(bracket, wbPrelimMatches, mkId, createPrelimMatch) {
+  const wb = bracket.wb;
+  if (!wb?.[0]?.length || !wbPrelimMatches?.length) {
+    return { loserRounds: [], changed: false };
+  }
+
+  const entrantFeeds = buildLbEntrantFeeds(wbPrelimMatches, wb[0]);
+  const targetSurvivors = wb[0].length;
+  const built = buildLbPoolReduction(entrantFeeds, targetSurvivors, mkId, createPrelimMatch);
+
+  const oldLb0Ids = new Set((bracket.lb?.[0] || []).map((m) => m.id));
+  bracket.matches = (bracket.matches || []).filter((m) => !oldLb0Ids.has(m.id));
+  if (!bracket.lb) bracket.lb = [];
+  bracket.lb[0] = built.lb0;
+  bracket.matches.push(...built.matches);
+  bracket.lbPrelimRounds = [];
+  bracket._prelimLbFeed = null;
+  bracket._lbPlayInHostIdx = -1;
+  bracket._lbPoolReduction = true;
+
+  rebuildLbFromDrop(bracket, mkId);
+
+  return { loserRounds: built.loserRounds, changed: true };
+}
+
 /**
  * Si hay más clasificados LB que bajadas WB, reduce con rondas preliminares internas
  * (emparejando ganadores LB entre sí) hasta poder enfrentarlos con perdedores WB.
@@ -374,7 +486,10 @@ export function rebuildLbFromDrop(bracket, mkId) {
   let seq = bracket.matches.length;
   const nextId = () => mkId(seq++);
 
-  const prelimFeed = bracket._prelimLbFeed || findPrelimLbFeed(bracket);
+  const usePoolReduction = bracket._lbPoolReduction === true;
+  const prelimFeed = usePoolReduction
+    ? null
+    : bracket._prelimLbFeed || findPrelimLbFeed(bracket);
 
   if (prelimFeed) {
     const solo = findPrelimSoloLb0(bracket);
@@ -390,18 +505,20 @@ export function rebuildLbFromDrop(bracket, mkId) {
   bracket.lbPrelimRounds = [];
   const lb0Count = bracket.lb[0].length;
   const wb1Count = wb[1]?.length || 0;
-  const hasPrelim = !!prelimFeed;
+  const hasPrelim = !!prelimFeed && !usePoolReduction;
   const playInNeeded =
     hasPrelim && computeLbPlayInNeeded(lb0Count, 1, wb1Count) > 0;
-  const playInHostIdx = playInNeeded
-    ? bracket._lbPlayInHostIdx >= 0
-      ? bracket._lbPlayInHostIdx
-      : lb0Count - 1
-    : -1;
+  const playInHostIdx =
+    usePoolReduction || !playInNeeded
+      ? -1
+      : bracket._lbPlayInHostIdx >= 0
+        ? bracket._lbPlayInHostIdx
+        : lb0Count - 1;
   const ext = extendLbRoundsFrom(wb, bracket.lb, 1, 1, nextId, {
-    playInFeed: playInHostIdx >= 0 && prelimFeed ? prelimFeed : null,
-    playInHostIdx,
-    extraPrelimFeed: playInHostIdx < 0 && prelimFeed ? prelimFeed : null,
+    playInFeed: !usePoolReduction && playInHostIdx >= 0 && prelimFeed ? prelimFeed : null,
+    playInHostIdx: usePoolReduction ? -1 : playInHostIdx,
+    extraPrelimFeed:
+      !usePoolReduction && playInHostIdx < 0 && prelimFeed ? prelimFeed : null,
   });
   bracket.lbPrelimRounds = [];
   if (playInHostIdx >= 0) bracket._lbPlayInHostIdx = playInHostIdx;

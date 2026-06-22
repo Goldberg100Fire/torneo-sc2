@@ -1373,23 +1373,36 @@
         if (
           !isLegacyPrincipalTournament() &&
           !window.BracketEngine.lbHasAnyConfirmed(state.bracket) &&
-          state.preliminary?.loserRounds?.length
+          state.preliminary?.rounds?.[0]?.length
         ) {
-          const prelimFix = window.BracketEngine.repairBrokenLbPrelimRounds(
+          let prelbSeq = 0;
+          const built = window.BracketEngine.setupLosersPoolForWbPrelims(
             state.bracket,
-            state.preliminary,
-            mkFix
+            state.preliminary.rounds[0],
+            () => `m-fix-${fixSeq++}`,
+            (i, roundIdx) => {
+              const m = makeMatch(
+                () => `prelb-fix-${roundIdx}-${prelbSeq++}`,
+                "preliminary-lb",
+                roundIdx,
+                i
+              );
+              m.bestOf = 5;
+              return m;
+            }
           );
-          if (prelimFix?.changed) {
+          if (built.changed) {
+            state.preliminary.loserRounds = built.loserRounds || [];
             reconcileBracketMatches();
             queueMicrotask(() =>
-              showToast("Play-in de repechaje corregido. Revisa el cuadro y guarda.")
+              showToast("Repechaje recalculado según preliminares WB. Revisa y guarda.")
             );
           }
         }
         if (
           !isLegacyPrincipalTournament() &&
-          !window.BracketEngine.lbHasAnyConfirmed(state.bracket)
+          !window.BracketEngine.lbHasAnyConfirmed(state.bracket) &&
+          !state.bracket?._lbPoolReduction
         ) {
           const lbFix = window.BracketEngine.repairLbByeGhosts(state.bracket, mkFix);
           if (lbFix?.changed) {
@@ -2900,7 +2913,7 @@
       }
 
       const excess = n - target;
-      const prelimPairCount = Math.ceil(excess / 2);
+      const prelimPairCount = excess;
       const directCount = target - prelimPairCount;
       const directIds = order.slice(0, directCount);
       const prelimPool = order.slice(directCount, directCount + prelimPairCount * 2);
@@ -2909,30 +2922,29 @@
         : buildPrelimRound(prelimPool, 0);
       const loserRounds = [];
 
-      if (winnerRound.length > 1) {
-        loserRounds.push(buildPrelimLoserRoundFromSources(winnerRound, 0));
-        let r = loserRounds[loserRounds.length - 1];
-        let ri = 1;
-        while (r.length > 1) {
-          r = buildPrelimLbAdvanceRound(r, ri++);
-          loserRounds.push(r);
-        }
-      }
-
       const slots = buildSlotsForMain(directIds, winnerRound, options.randomSlots !== false);
       const bracket = options.mainPairs?.length
         ? buildMainBracketFromMainPairs(options.mainPairs, winnerRound, target)
         : buildMainBracketFromSlots(slots, target);
 
-      if (winnerRound.length === 1) {
-        const plLb = buildPrelimLoserRoundFromSources(winnerRound, 0);
-        loserRounds.push(plLb);
-        const prelimChamp = plLb[0];
-        if (prelimChamp && !prelimChamp.feedB) prelimChamp.teamB = `bye-${prelimChamp.id}`;
-        applyPrelimLbToBracket(bracket, loserRounds, prelimChamp);
-      } else if (loserRounds.length) {
-        const last = loserRounds[loserRounds.length - 1];
-        if (last[0]) applyPrelimLbToBracket(bracket, loserRounds, last[0]);
+      if (winnerRound.length > 0 && window.BracketEngine) {
+        let prelbSeq = 0;
+        const built = window.BracketEngine.setupLosersPoolForWbPrelims(
+          bracket,
+          winnerRound,
+          () => `m-${bracket.matches.length + prelbSeq++}`,
+          (i, roundIdx) => {
+            const m = makeMatch(
+              () => `prelb-${roundIdx}-${prelbSeq++}`,
+              "preliminary-lb",
+              roundIdx,
+              i
+            );
+            m.bestOf = 5;
+            return m;
+          }
+        );
+        if (built.loserRounds?.length) loserRounds.push(...built.loserRounds);
       }
 
       drawInfo.mode = "preliminary";
@@ -3090,7 +3102,7 @@
       }
       const target = getTargetSize(teamCount);
       const excess = teamCount - target;
-      const prelimPairCount = Math.ceil(excess / 2);
+      const prelimPairCount = excess;
       const directCount = target - prelimPairCount;
       return {
         mode: "preliminary",
