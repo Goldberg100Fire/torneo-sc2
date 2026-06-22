@@ -254,6 +254,133 @@
       margin-left: 0.35rem;
     }
 
+    .staff-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .staff-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .staff-stat {
+      flex: 1;
+      min-width: 100px;
+      padding: 0.5rem 0.65rem;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .staff-stat strong {
+      display: block;
+      font-family: "Orbitron", sans-serif;
+      color: var(--accent);
+      font-size: 1.1rem;
+    }
+
+    .staff-stat span {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .staff-table-wrap {
+      overflow-x: auto;
+      margin-bottom: 1rem;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+    }
+
+    .staff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    .staff-table th,
+    .staff-table td {
+      padding: 0.55rem 0.65rem;
+      text-align: left;
+      border-bottom: 1px solid var(--panel-border);
+      vertical-align: middle;
+    }
+
+    .staff-table th {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .staff-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .staff-table tr:hover td {
+      background: rgba(0, 212, 255, 0.04);
+    }
+
+    .staff-status {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .staff-status.active {
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    .staff-status.pending {
+      color: #e8a84a;
+      border: 1px solid #8a7020;
+    }
+
+    .staff-status.disabled {
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+
+    .staff-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+
+    .staff-actions button {
+      font-size: 0.78rem;
+      padding: 0.28rem 0.5rem;
+    }
+
+    .staff-subtitle {
+      font-size: 0.8rem;
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 0.5rem 0 0.65rem;
+    }
+
+    .staff-you {
+      color: var(--accent);
+      font-size: 0.75rem;
+      margin-left: 0.35rem;
+    }
+
     .role-badge {
       font-size: 0.75rem;
       color: var(--gold);
@@ -914,16 +1041,35 @@
   </div>
 
   <section id="staffSection" class="staff-panel" hidden>
-    <h3>EQUIPO ADMINISTRADOR</h3>
+    <div class="staff-toolbar">
+      <h3 style="margin:0">PANEL DE USUARIOS</h3>
+      <button type="button" class="btn-ghost" id="btnRefreshStaff" title="Actualizar lista">↻ Actualizar</button>
+    </div>
     <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-      Invita editores por correo (Gmail API desde el servidor). Recibirán un enlace para crear su contraseña.
+      Invita editores, reenvía enlaces de contraseña o revoca acceso. Solo el admin principal gestiona el equipo.
     </p>
+    <div class="staff-stats" id="staffStats"></div>
     <div class="staff-invite-row">
       <input type="email" id="inviteEmail" placeholder="correo@ejemplo.com" autocomplete="off" />
       <button type="button" class="btn-gold" id="btnInviteEditor">Enviar invitación</button>
     </div>
     <p class="login-error" id="inviteError" style="margin-bottom: 0.5rem;"></p>
-    <ul class="staff-list" id="staffList"></ul>
+    <div class="staff-table-wrap">
+      <table class="staff-table">
+        <thead>
+          <tr>
+            <th>Correo</th>
+            <th>Rol</th>
+            <th>Estado</th>
+            <th>Alta</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="staffTableBody"></tbody>
+      </table>
+    </div>
+    <h4 class="staff-subtitle" id="pendingTitle" hidden>Invitaciones pendientes</h4>
+    <ul class="staff-list" id="pendingList"></ul>
   </section>
 
   <header>
@@ -1078,6 +1224,7 @@
     let adminAppStarted = false;
     let currentAdminRole = null;
     let adminRolesDoc = null;
+    let staffPanelData = null;
     /** Servidor SQLite (npm start) responde en /api/health */
     let sqliteListening = false;
 
@@ -1579,41 +1726,272 @@
       return { email, message: json.message || `Correo enviado a ${email}` };
     }
 
+    function formatStaffDate(iso) {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleDateString("es", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+      } catch (e) {
+        return "—";
+      }
+    }
+
+    function memberStatusLabel(member) {
+      if (member.role === "super") return { text: "Activo", cls: "active" };
+      const auth = member.auth;
+      if (auth?.disabled) return { text: "Revocado", cls: "disabled" };
+      if (auth?.missing) return { text: "Sin cuenta", cls: "disabled" };
+      if (auth?.lastSignIn) return { text: "Activo", cls: "active" };
+      return { text: "Sin contraseña", cls: "pending" };
+    }
+
+    async function fetchStaffPanelData() {
+      if (!isSuperAdmin()) return null;
+      if (location.protocol === "file:") return null;
+      const token = await getIdToken();
+      if (!token) return null;
+      const res = await fetch("/api/admin/staff", {
+        headers: { Authorization: "Bearer " + token },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "No se pudo cargar el equipo");
+      staffPanelData = json;
+      return json;
+    }
+
+    async function removeStaffMember(uid, email) {
+      if (!isSuperAdmin()) throw new Error("Solo el admin principal puede quitar usuarios");
+      const alsoDelete = confirm(
+        `¿Quitar acceso a ${email}?\n\nAceptar = deshabilitar cuenta (reversible si reinvitas).\nCancelar = no hacer nada.`
+      );
+      if (!alsoDelete) return null;
+      const fullDelete = confirm(
+        "¿Borrar también la cuenta de Firebase Auth?\n\nSí = elimina la cuenta por completo.\nNo = solo deshabilita (recomendado)."
+      );
+      const token = await getIdToken();
+      const url =
+        "/api/admin/members/" + encodeURIComponent(uid) +
+        (fullDelete ? "?deleteAuth=true" : "");
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + token },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "No se pudo quitar el usuario");
+      await loadAdminRolesDoc();
+      return json;
+    }
+
+    async function resendStaffInvite(email) {
+      if (!isSuperAdmin()) throw new Error("Solo el admin principal puede reenviar invitaciones");
+      const token = await getIdToken();
+      const res = await fetch("/api/admin/invite/resend", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          continueUrl: window.location.origin + "/admin.html",
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "No se pudo reenviar");
+      return json;
+    }
+
+    async function cancelPendingInvite(email) {
+      if (!isSuperAdmin()) throw new Error("Solo el admin principal");
+      if (!confirm(`¿Cancelar la invitación pendiente a ${email}?`)) return null;
+      const token = await getIdToken();
+      const res = await fetch("/api/admin/invites", {
+        method: "DELETE",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "No se pudo cancelar");
+      await loadAdminRolesDoc();
+      return json;
+    }
+
+    function renderStaffStats(data) {
+      const el = document.getElementById("staffStats");
+      if (!el) return;
+      el.innerHTML = "";
+      const items = [
+        { label: "Admins", value: data?.superAdminCount ?? 0 },
+        { label: "Editores", value: data?.editorCount ?? 0 },
+        { label: "Pendientes", value: (data?.pendingInvites || []).length },
+      ];
+      items.forEach(({ label, value }) => {
+        const card = document.createElement("div");
+        card.className = "staff-stat";
+        card.innerHTML = "<strong>" + value + "</strong><span>" + label + "</span>";
+        el.appendChild(card);
+      });
+    }
+
     function renderStaffPanel() {
       const section = document.getElementById("staffSection");
-      const list = document.getElementById("staffList");
-      if (!section || !list) return;
+      const tbody = document.getElementById("staffTableBody");
+      const pendingList = document.getElementById("pendingList");
+      const pendingTitle = document.getElementById("pendingTitle");
+      if (!section || !tbody) return;
       section.hidden = !isSuperAdmin();
       if (!isSuperAdmin()) return;
-      list.innerHTML = "";
-      const members = adminRolesDoc?.members || [];
-      const pending = adminRolesDoc?.pendingInvites || [];
-      if (!members.length && !pending.length) {
-        list.innerHTML = "<li>Sin otros usuarios aún.</li>";
-        return;
+
+      const data = staffPanelData;
+      const currentUid = firebaseAuth?.currentUser?.uid;
+      renderStaffStats(data);
+
+      tbody.innerHTML = "";
+      const members = data?.members || adminRolesDoc?.members || [];
+      if (!members.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="5" style="color:var(--muted)">Sin usuarios en el equipo.</td>';
+        tbody.appendChild(tr);
+      } else {
+        members.forEach((m) => {
+          const tr = document.createElement("tr");
+          const emailTd = document.createElement("td");
+          emailTd.textContent = m.email || m.uid || "—";
+          if (m.uid === currentUid) {
+            const you = document.createElement("span");
+            you.className = "staff-you";
+            you.textContent = "(tú)";
+            emailTd.appendChild(you);
+          }
+
+          const roleTd = document.createElement("td");
+          roleTd.innerHTML =
+            '<span class="role-tag">' +
+            (m.role === "super" ? "Admin principal" : "Editor") +
+            "</span>";
+
+          const statusTd = document.createElement("td");
+          const st = memberStatusLabel(m);
+          const badge = document.createElement("span");
+          badge.className = "staff-status " + st.cls;
+          badge.textContent = st.text;
+          statusTd.appendChild(badge);
+
+          const dateTd = document.createElement("td");
+          dateTd.textContent = formatStaffDate(m.addedAt);
+
+          const actionsTd = document.createElement("td");
+          const actions = document.createElement("div");
+          actions.className = "staff-actions";
+
+          if (m.email) {
+            const resendBtn = document.createElement("button");
+            resendBtn.type = "button";
+            resendBtn.className = "btn-ghost";
+            resendBtn.textContent = "Reenviar";
+            resendBtn.title = "Reenviar enlace para crear contraseña";
+            resendBtn.addEventListener("click", async () => {
+              try {
+                resendBtn.disabled = true;
+                const json = await resendStaffInvite(m.email);
+                showToast(json.message || "Correo reenviado");
+              } catch (e) {
+                showToast(e.message || "Error");
+              } finally {
+                resendBtn.disabled = false;
+              }
+            });
+            actions.appendChild(resendBtn);
+          }
+
+          if (m.role !== "super" && m.uid && m.uid !== currentUid) {
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "btn-danger";
+            removeBtn.textContent = "Quitar";
+            removeBtn.addEventListener("click", async () => {
+              try {
+                removeBtn.disabled = true;
+                const json = await removeStaffMember(m.uid, m.email || m.uid);
+                if (json) {
+                  showToast(json.message || "Usuario quitado");
+                  await refreshStaffPanel();
+                }
+              } catch (e) {
+                showToast(e.message || "Error");
+              } finally {
+                removeBtn.disabled = false;
+              }
+            });
+            actions.appendChild(removeBtn);
+          }
+
+          actionsTd.appendChild(actions);
+          tr.append(emailTd, roleTd, statusTd, dateTd, actionsTd);
+          tbody.appendChild(tr);
+        });
       }
-      members.forEach((m) => {
-        const li = document.createElement("li");
-        li.textContent = m.email || m.uid;
-        const tag = document.createElement("span");
-        tag.className = "role-tag";
-        tag.textContent = m.role === "super" ? "Admin principal" : "Editor";
-        li.appendChild(tag);
-        list.appendChild(li);
-      });
-      const memberEmails = new Set(
-        members.map((m) => normalizeEmail(m.email)).filter(Boolean)
-      );
-      pending.forEach((p) => {
-        if (memberEmails.has(normalizeEmail(p.email))) return;
-        const li = document.createElement("li");
-        li.textContent = p.email;
-        const tag = document.createElement("span");
-        tag.className = "role-tag";
-        tag.textContent = "Pendiente (sin contraseña)";
-        li.appendChild(tag);
-        list.appendChild(li);
-      });
+
+      if (pendingList && pendingTitle) {
+        pendingList.innerHTML = "";
+        const pending = data?.pendingInvites || adminRolesDoc?.pendingInvites || [];
+        const memberEmails = new Set(
+          members.map((m) => normalizeEmail(m.email)).filter(Boolean)
+        );
+        const visiblePending = pending.filter(
+          (p) => !memberEmails.has(normalizeEmail(p.email))
+        );
+        pendingTitle.hidden = !visiblePending.length;
+        visiblePending.forEach((p) => {
+          const li = document.createElement("li");
+          li.style.display = "flex";
+          li.style.flexWrap = "wrap";
+          li.style.alignItems = "center";
+          li.style.gap = "0.5rem";
+          li.style.justifyContent = "space-between";
+          const left = document.createElement("span");
+          left.textContent = p.email;
+          const tag = document.createElement("span");
+          tag.className = "role-tag";
+          tag.textContent = "Pendiente";
+          left.appendChild(tag);
+          const actions = document.createElement("div");
+          actions.className = "staff-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.className = "btn-ghost";
+          cancelBtn.textContent = "Cancelar";
+          cancelBtn.addEventListener("click", async () => {
+            try {
+              await cancelPendingInvite(p.email);
+              showToast("Invitación cancelada");
+              await refreshStaffPanel();
+            } catch (e) {
+              showToast(e.message || "Error");
+            }
+          });
+          actions.appendChild(cancelBtn);
+          li.append(left, actions);
+          pendingList.appendChild(li);
+        });
+      }
+    }
+
+    async function refreshStaffPanel() {
+      if (!isSuperAdmin()) return;
+      try {
+        await fetchStaffPanelData();
+      } catch (e) {
+        console.warn("staff panel:", e);
+        staffPanelData = null;
+      }
+      renderStaffPanel();
     }
 
     function applyRoleUI() {
@@ -1629,6 +2007,7 @@
       renderStaffPanel();
       const resetBtn = document.getElementById("btnReset");
       if (resetBtn) resetBtn.hidden = !isSuperAdmin();
+      if (isSuperAdmin()) refreshStaffPanel().catch(() => {});
     }
 
     async function persistToFirestore(payload) {
@@ -3873,7 +4252,7 @@
         try {
           const result = await inviteEditorByEmail(raw);
           emailInput.value = "";
-          renderStaffPanel();
+          await refreshStaffPanel();
           err.style.color = "var(--success)";
           err.textContent =
             (result?.message || "Correo enviado.") +
@@ -3890,6 +4269,26 @@
           if (btn) {
             btn.disabled = false;
             btn.textContent = prevLabel || "Enviar invitación";
+          }
+        }
+      });
+
+      document.getElementById("btnRefreshStaff")?.addEventListener("click", async () => {
+        const btn = document.getElementById("btnRefreshStaff");
+        const prev = btn?.textContent;
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "…";
+        }
+        try {
+          await refreshStaffPanel();
+          showToast("Lista de usuarios actualizada");
+        } catch (e) {
+          showToast(e.message || "Error al actualizar");
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || "↻ Actualizar";
           }
         }
       });

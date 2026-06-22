@@ -729,6 +729,229 @@ app.post("/api/admin/invite", async (req, res) => {
   });
 });
 
+async function requireSuperAdmin(req, res) {
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) {
+    res.status(auth.status).json({ error: auth.error });
+    return null;
+  }
+  if (!(await verifySuperAdmin(auth.decoded))) {
+    res.status(403).json({ error: "Solo el administrador principal puede hacer esto." });
+    return null;
+  }
+  return auth;
+}
+
+async function writeAdminRolesDoc(patch) {
+  const admin = await initFirebaseAdmin();
+  if (!admin) return null;
+  const ref = admin.firestore().collection("torneos_sc2").doc("admin_roles");
+  const snap = await ref.get();
+  const data = snap.exists
+    ? snap.data()
+    : { superAdminUids: [], editorUids: [], members: [], pendingInvites: [] };
+  const next = {
+    superAdminUids: data.superAdminUids || [],
+    editorUids: data.editorUids || [],
+    members: data.members || [],
+    pendingInvites: data.pendingInvites || [],
+    ...patch,
+  };
+  await ref.set(next, { merge: true });
+  return next;
+}
+
+/** Lista equipo admin con metadatos de Firebase Auth. */
+app.get("/api/admin/staff", async (req, res) => {
+  const auth = await requireSuperAdmin(req, res);
+  if (!auth) return;
+
+  const data = (await getAdminRolesData()) || {
+    superAdminUids: [],
+    editorUids: [],
+    members: [],
+    pendingInvites: [],
+  };
+  const admin = await initFirebaseAdmin();
+  const members = [];
+  for (const m of data.members || []) {
+    let authMeta = null;
+    if (admin && m.uid) {
+      try {
+        const u = await admin.auth().getUser(m.uid);
+        authMeta = {
+          disabled: !!u.disabled,
+          emailVerified: !!u.emailVerified,
+          lastSignIn: u.metadata.lastSignInTime || null,
+          creationTime: u.metadata.creationTime || null,
+        };
+      } catch (e) {
+        authMeta = { missing: true };
+      }
+    }
+    members.push({ ...m, auth: authMeta });
+  }
+
+  res.json({
+    members,
+    pendingInvites: data.pendingInvites || [],
+    superAdminCount: (data.superAdminUids || []).length,
+    editorCount: (data.editorUids || []).filter(
+      (uid) => !(data.superAdminUids || []).includes(uid)
+    ).length,
+    currentUid: auth.decoded.uid,
+  });
+});
+
+/** Quitar acceso de editor (deshabilita cuenta en Auth; opcional borrar). */
+app.delete("/api/admin/members/:uid", async (req, res) => {
+  const auth = await requireSuperAdmin(req, res);
+  if (!auth) return;
+
+  const uid = String(req.params.uid || "").trim();
+  if (!uid) return res.status(400).json({ error: "UID inválido" });
+  if (uid === auth.decoded.uid) {
+    return res.status(400).json({ error: "No puedes quitarte tu propio acceso." });
+  }
+
+  const data = await getAdminRolesData();
+  if (!data) return res.status(404).json({ error: "No hay datos de roles." });
+  if ((data.superAdminUids || []).includes(uid)) {
+    return res.status(400).json({ error: "No se puede eliminar un admin principal." });
+  }
+  if (!(data.editorUids || []).includes(uid)) {
+    return res.status(404).json({ error: "Este usuario no es editor." });
+  }
+
+  const member = (data.members || []).find((m) => m.uid === uid);
+  const email = member?.email || null;
+  const editorUids = (data.editorUids || []).filter((id) => id !== uid);
+  const members = (data.members || []).filter((m) => m.uid !== uid);
+  const pendingInvites = (data.pendingInvites || []).filter(
+    (p) => !email || normalizeEmail(p.email) !== normalizeEmail(email)
+  );
+  await writeAdminRolesDoc({ editorUids, members, pendingInvites });
+
+  const deleteAuth = String(req.query.deleteAuth || "") === "true";
+  const admin = await initFirebaseAdmin();
+  if (admin) {
+    try {
+      if (deleteAuth) await admin.auth().deleteUser(uid);
+      else await admin.auth().updateUser(uid, { disabled: true });
+    } catch (e) {
+      console.warn("Auth al quitar editor:", e.message);
+    }
+  }
+
+  res.json({
+    ok: true,
+    uid,
+    email,
+    disabled: !deleteAuth,
+    deleted: deleteAuth,
+    message: deleteAuth
+      ? "Usuario eliminado del equipo y de Firebase Auth."
+      : "Acceso revocado. La cuenta quedó deshabilitada en Firebase.",
+  });
+});
+
+/** Reenviar correo de invitación / crear contraseña. */
+app.post("/api/admin/invite/resend", async (req, res) => {
+  const auth = await requireSuperAdmin(req, res);
+  if (!auth) return;
+
+  const email = normalizeEmail(req.body?.email);
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "Correo inválido" });
+  }
+  if (!isEmailConfigured()) {
+    return res.status(503).json({ error: "Servicio de correo no configurado en el servidor." });
+  }
+  const continueUrl = resolveContinueUrl(req);
+  if (!continueUrl) {
+    return res.status(400).json({ error: "Falta APP_PUBLIC_URL o continueUrl." });
+  }
+
+  const admin = await initFirebaseAdmin();
+  if (!admin) return res.status(503).json({ error: "Firebase Admin no configurado." });
+
+  let userRecord;
+  try {
+    userRecord = await admin.auth().getUserByEmail(email);
+  } catch (e) {
+    if (e.code === "auth/user-not-found") {
+      return res.status(404).json({ error: "No hay cuenta con ese correo. Envía una invitación nueva." });
+    }
+    return res.status(500).json({ error: e.message });
+  }
+
+  const data = await getAdminRolesData();
+  const isEditor = (data?.editorUids || []).includes(userRecord.uid);
+  const isSuper = (data?.superAdminUids || []).includes(userRecord.uid);
+  if (!isEditor && !isSuper) {
+    return res.status(400).json({ error: "Ese correo no pertenece al equipo admin." });
+  }
+
+  let setupLink;
+  try {
+    setupLink = await admin.auth().generatePasswordResetLink(email, {
+      url: continueUrl,
+      handleCodeInApp: false,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  try {
+    await sendInviteEmail({
+      to: email,
+      setupLink,
+      appName: process.env.APP_NAME || "Torneo StarCraft",
+    });
+  } catch (e) {
+    return res.status(502).json({ error: `No se pudo enviar el correo: ${e.message}` });
+  }
+
+  if (userRecord.disabled) {
+    try {
+      await admin.auth().updateUser(userRecord.uid, { disabled: false });
+    } catch (e) {
+      console.warn("Reactivar usuario:", e.message);
+    }
+  }
+
+  res.json({
+    ok: true,
+    email,
+    emailSent: true,
+    message: `Correo reenviado a ${email}.`,
+  });
+});
+
+/** Cancelar invitación pendiente (sin quitar editor ya registrado). */
+app.delete("/api/admin/invites", async (req, res) => {
+  const auth = await requireSuperAdmin(req, res);
+  if (!auth) return;
+
+  const email = normalizeEmail(req.body?.email);
+  if (!email) return res.status(400).json({ error: "Correo inválido" });
+
+  const data = await getAdminRolesData();
+  if (!data) return res.status(404).json({ error: "No hay datos de roles." });
+  const had = (data.pendingInvites || []).some((p) => normalizeEmail(p.email) === email);
+  const pendingInvites = (data.pendingInvites || []).filter(
+    (p) => normalizeEmail(p.email) !== email
+  );
+  await writeAdminRolesDoc({ pendingInvites });
+
+  res.json({
+    ok: true,
+    email,
+    removed: had,
+    message: had ? "Invitación pendiente cancelada." : "No había invitación pendiente para ese correo.",
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Torneo StarCraft: http://localhost:${PORT}`);
   console.log(`Base de datos: ${DB_PATH}`);
