@@ -2798,9 +2798,10 @@
       }
 
       const excess = n - target;
-      const directCount = target - excess;
+      const prelimPairCount = Math.ceil(excess / 2);
+      const directCount = target - prelimPairCount;
       const directIds = order.slice(0, directCount);
-      const prelimPool = order.slice(directCount);
+      const prelimPool = order.slice(directCount, directCount + prelimPairCount * 2);
       const winnerRound = options.prelimPairs?.length
         ? buildPrelimRoundFromPairs(options.prelimPairs, 0)
         : buildPrelimRound(prelimPool, 0);
@@ -2817,7 +2818,9 @@
       }
 
       const slots = buildSlotsForMain(directIds, winnerRound, options.randomSlots !== false);
-      const bracket = buildMainBracketFromSlots(slots, target);
+      const bracket = options.mainPairs?.length
+        ? buildMainBracketFromMainPairs(options.mainPairs, winnerRound, target)
+        : buildMainBracketFromSlots(slots, target);
 
       if (winnerRound.length === 1) {
         wireSinglePrelimLoser(bracket, winnerRound[0]);
@@ -2984,13 +2987,88 @@
       }
       const target = getTargetSize(teamCount);
       const excess = teamCount - target;
+      const prelimPairCount = Math.ceil(excess / 2);
+      const directCount = target - prelimPairCount;
       return {
         mode: "preliminary",
         targetSize: target,
         excess,
-        prelimPairCount: Math.ceil(excess / 2),
-        directCount: target - excess,
+        prelimPairCount,
+        prelimTeamCount: prelimPairCount * 2,
+        directCount,
+        mainPairCount: target / 2,
       };
+    }
+
+    function slotSelectOptions(selectedValue, options) {
+      const sel = document.createElement("select");
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "— elegir —";
+      sel.appendChild(empty);
+      options.forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === selectedValue) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+
+    function buildMainSlotOptions(directTeams, prelimMatchCount) {
+      const opts = directTeams.map((t) => ({
+        value: "team:" + t.id,
+        label: t.name.trim() || t.id,
+      }));
+      for (let i = 0; i < prelimMatchCount; i++) {
+        opts.push({
+          value: "prelim:" + i,
+          label: "Ganador prelim. ganadores · Cruce " + (i + 1),
+        });
+      }
+      return opts;
+    }
+
+    function parseMainSlotValue(value) {
+      if (!value) return null;
+      if (value.startsWith("team:")) return { type: "team", id: value.slice(5) };
+      if (value.startsWith("prelim:")) {
+        return { type: "prelim", index: parseInt(value.slice(7), 10) };
+      }
+      return null;
+    }
+
+    function buildMainBracketFromMainPairs(mainPairs, prelimMatches, targetSize) {
+      const placeholders = Array.from({ length: targetSize }, (_, i) => "ph-" + i);
+      const result = buildBracketSimple(placeholders);
+      const assignSide = (match, side, slot) => {
+        if (slot.type === "team") {
+          if (side === "A") {
+            match.teamA = slot.id;
+            match.feedA = null;
+          } else {
+            match.teamB = slot.id;
+            match.feedB = null;
+          }
+        } else {
+          const prelimMatch = prelimMatches[slot.index];
+          const f = feed(prelimMatch, "winner");
+          if (side === "A") {
+            match.teamA = null;
+            match.feedA = f;
+          } else {
+            match.teamB = null;
+            match.feedB = f;
+          }
+        }
+      };
+      mainPairs.forEach((pair, m) => {
+        const match = result.wb[0][m];
+        assignSide(match, "A", pair[0]);
+        assignSide(match, "B", pair[1]);
+      });
+      return result;
     }
 
     function updateTournamentBar() {
@@ -3148,7 +3226,7 @@
       intro.style.color = "var(--muted)";
       intro.style.marginBottom = "1rem";
       intro.textContent =
-        "Sorteo aleatorio o empareja manualmente (winners y preliminares). El repechaje se calcula automáticamente.";
+        "Sorteo aleatorio o empareja manualmente todos los cruces (preliminar y cuadro principal). El repechaje LB se calcula automáticamente.";
       const row = document.createElement("div");
       row.style.marginTop = "1rem";
       const btnRandom = document.createElement("button");
@@ -3185,6 +3263,10 @@
 
     function teamSelectOptions(selectedId, pool, exclude) {
       const sel = document.createElement("select");
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "— elegir —";
+      sel.appendChild(empty);
       pool.forEach((t) => {
         if (exclude.has(t.id) && t.id !== selectedId) return;
         const o = document.createElement("option");
@@ -3206,46 +3288,97 @@
       title.textContent = "Emparejar cruces";
       modal.appendChild(title);
       const rows = [];
-      const used = new Set();
 
       if (structure.mode === "direct") {
         const p = document.createElement("p");
         p.style.color = "var(--muted)";
         p.style.marginBottom = "0.75rem";
-        p.textContent = "Winners R1 — elige rivales (repechaje se arma solo).";
+        p.textContent =
+          "Winners R1 — elige todos los rivales (" + structure.pairCount + " cruces).";
         modal.appendChild(p);
-        const shuffled = shuffle([...validTeams]);
         for (let i = 0; i < structure.pairCount; i++) {
           const row = document.createElement("div");
           row.className = "pair-row";
-          const a = shuffled[i * 2]?.id;
-          const b = shuffled[i * 2 + 1]?.id;
-          const selA = teamSelectOptions(a, validTeams, used);
-          const selB = teamSelectOptions(b, validTeams, used);
+          const selA = teamSelectOptions("", validTeams, new Set());
+          const selB = teamSelectOptions("", validTeams, new Set());
           row.append(selA, document.createTextNode("vs"), selB);
           modal.appendChild(row);
-          rows.push({ selA, selB });
+          rows.push({ selA, selB, kind: "direct" });
         }
       } else {
-        const p = document.createElement("p");
-        p.style.color = "var(--muted)";
-        p.style.marginBottom = "0.75rem";
-        p.textContent =
-          "Preliminar winners (y repechaje prelim si aplica). Los clasificados al cuadro de " +
-          structure.targetSize +
-          " se ordenan como los elijas abajo.";
-        modal.appendChild(p);
-        const prelimTeams = shuffle(validTeams).slice(structure.directCount);
+        const p1 = document.createElement("p");
+        p1.style.color = "var(--muted)";
+        p1.style.marginBottom = "0.75rem";
+        p1.textContent =
+          "Preliminar ganadores — " +
+          structure.prelimPairCount +
+          " cruce(s), " +
+          structure.prelimTeamCount +
+          " equipos.";
+        modal.appendChild(p1);
         for (let i = 0; i < structure.prelimPairCount; i++) {
           const row = document.createElement("div");
           row.className = "pair-row";
-          const a = prelimTeams[i * 2]?.id;
-          const b = prelimTeams[i * 2 + 1]?.id;
-          const selA = teamSelectOptions(a, prelimTeams, used);
-          const selB = teamSelectOptions(b, prelimTeams, used);
+          const selA = teamSelectOptions("", validTeams, new Set());
+          const selB = teamSelectOptions("", validTeams, new Set());
           row.append(selA, document.createTextNode("vs"), selB);
           modal.appendChild(row);
-          rows.push({ selA, selB, prelim: true });
+          rows.push({ selA, selB, kind: "prelim" });
+        }
+
+        const p2 = document.createElement("p");
+        p2.style.color = "var(--muted)";
+        p2.style.margin = "1rem 0 0.75rem";
+        p2.textContent =
+          "Cuadro principal (" +
+          structure.targetSize +
+          ") — empareja los " +
+          structure.mainPairCount +
+          " cruces de la primera ronda.";
+        modal.appendChild(p2);
+
+        const prelimRows = () => rows.filter((r) => r.kind === "prelim");
+        const mainSlotOptions = () => {
+          const prelimPairs = prelimRows().map((r) => [r.selA.value, r.selB.value]);
+          const inPrelim = new Set(prelimPairs.flat().filter(Boolean));
+          const directTeams = validTeams.filter((t) => !inPrelim.has(t.id));
+          return buildMainSlotOptions(directTeams, structure.prelimPairCount);
+        };
+
+        const mainRows = [];
+        for (let i = 0; i < structure.mainPairCount; i++) {
+          const row = document.createElement("div");
+          row.className = "pair-row";
+          const opts = mainSlotOptions();
+          const selA = slotSelectOptions("", opts);
+          const selB = slotSelectOptions("", opts);
+          row.append(selA, document.createTextNode("vs"), selB);
+          modal.appendChild(row);
+          const entry = { selA, selB, kind: "main", refreshOptions: null };
+          entry.refreshOptions = () => {
+            const fresh = mainSlotOptions();
+            [selA, selB].forEach((sel) => {
+              const cur = sel.value;
+              sel.innerHTML = "";
+              const empty = document.createElement("option");
+              empty.value = "";
+              empty.textContent = "— elegir —";
+              sel.appendChild(empty);
+              fresh.forEach((opt) => {
+                const o = document.createElement("option");
+                o.value = opt.value;
+                o.textContent = opt.label;
+                if (opt.value === cur) o.selected = true;
+                sel.appendChild(o);
+              });
+            });
+          };
+          prelimRows().forEach((pr) => {
+            pr.selA.addEventListener("change", entry.refreshOptions);
+            pr.selB.addEventListener("change", entry.refreshOptions);
+          });
+          mainRows.push(entry);
+          rows.push(entry);
         }
       }
 
@@ -3256,30 +3389,78 @@
       confirm.textContent = "Confirmar emparejamientos";
       confirm.addEventListener("click", () => {
         const options = { randomOrder: false, randomSlots: false };
-        const picked = [];
-        rows.forEach(({ selA, selB }) => {
-          picked.push(selA.value, selB.value);
-        });
-        if (new Set(picked).size !== picked.length) {
-          alert("Cada equipo solo puede aparecer en un cruce.");
-          return;
-        }
+
         if (structure.mode === "direct") {
-          const order = [];
-          rows.forEach(({ selA, selB }) => {
-            order.push(selA.value, selB.value);
-          });
-          options.teamOrder = order;
+          const picked = [];
+          for (const { selA, selB } of rows) {
+            if (!selA.value || !selB.value) {
+              alert("Completa todos los cruces de la primera ronda.");
+              return;
+            }
+            picked.push(selA.value, selB.value);
+          }
+          if (picked.length !== structure.pairCount * 2) return;
+          if (new Set(picked).size !== picked.length) {
+            alert("Cada equipo solo puede aparecer en un cruce.");
+            return;
+          }
+          options.teamOrder = picked;
         } else {
-          const pairs = rows.map(({ selA, selB }) => [selA.value, selB.value]);
-          options.prelimPairs = pairs;
-          const paired = new Set(pairs.flat());
-          const direct = validTeams
+          const prelimPicked = [];
+          const prelimPairs = [];
+          for (const { selA, selB, kind } of rows) {
+            if (kind !== "prelim") continue;
+            if (!selA.value || !selB.value) {
+              alert("Completa todos los cruces del preliminar de ganadores.");
+              return;
+            }
+            prelimPicked.push(selA.value, selB.value);
+            prelimPairs.push([selA.value, selB.value]);
+          }
+          if (prelimPicked.length !== structure.prelimTeamCount) return;
+          if (new Set(prelimPicked).size !== prelimPicked.length) {
+            alert("Cada equipo solo puede aparecer en un cruce preliminar.");
+            return;
+          }
+
+          const mainPairs = [];
+          const mainUsed = new Map();
+          for (const { selA, selB, kind } of rows) {
+            if (kind !== "main") continue;
+            if (!selA.value || !selB.value) {
+              alert("Completa todos los cruces del cuadro principal.");
+              return;
+            }
+            const a = parseMainSlotValue(selA.value);
+            const b = parseMainSlotValue(selB.value);
+            if (!a || !b) return;
+            mainPairs.push([a, b]);
+            const mark = (slot) => {
+              if (slot.type === "team") {
+                if (mainUsed.has("team:" + slot.id)) return false;
+                mainUsed.set("team:" + slot.id, true);
+              } else {
+                const k = "prelim:" + slot.index;
+                if (mainUsed.has(k)) return false;
+                mainUsed.set(k, true);
+              }
+              return true;
+            };
+            if (!mark(a) || !mark(b)) {
+              alert("Cada plaza del cuadro principal solo puede usarse una vez.");
+              return;
+            }
+          }
+          if (mainPairs.length !== structure.mainPairCount) return;
+
+          options.prelimPairs = prelimPairs;
+          options.mainPairs = mainPairs;
+          const paired = new Set(prelimPicked);
+          options.teamOrder = validTeams
             .filter((t) => !paired.has(t.id))
-            .slice(0, structure.directCount)
             .map((t) => t.id);
-          options.teamOrder = [...direct, ...paired];
         }
+
         backdrop.remove();
         drawBracket(options);
       });

@@ -91,6 +91,32 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
   return { round, matches };
 }
 
+/**
+ * LB R2: ganadores de LB R1 avanzan en la misma ronda; el hueco host juega vs clasificado prelim.
+ * El resto de huecos emparejan ganador LB R1 vs perdedor WB de la misma ronda.
+ */
+export function buildLb1WithPrelimBridge(lb0, wbRound, hostIdx, prelimFeed, mkId) {
+  const round = [];
+  const matches = [];
+  if (!lb0?.length || !wbRound?.length || !prelimFeed) return { round, matches };
+
+  for (let slot = 0; slot < lb0.length; slot++) {
+    const match = createMatch(mkId(), "losers", 1, slot);
+    match.feedA = feed(lb0[slot], "winner");
+    if (slot === hostIdx) {
+      match.feedB = prelimFeed;
+    } else if (slot < wbRound.length) {
+      match.feedB = feed(wbRound[slot], "loser");
+    } else {
+      match.teamB = `bye-${match.id}`;
+    }
+    round.push(match);
+    matches.push(match);
+  }
+
+  return { round, matches };
+}
+
 /** Empareja ganadores de la ronda anterior; impar recibe BYE (sin rival pendiente). */
 export function buildLbConsolidationRound(prevRound, lbR, mkId) {
   const round = [];
@@ -120,13 +146,11 @@ export function buildLbConsolidationRound(prevRound, lbR, mkId) {
  * A partir de lb[0] ya definido, genera lb[1..] y devuelve cruces nuevos.
  * options.bridgeHostIndex + bridge en lb[bridgeRoundIndex]: bajada WB usa ganador del puente.
  */
-export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options = {}) {
+export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, _options = {}) {
   const matches = [];
   const wbRounds = wb.length;
   let lbR = startLbR;
   let wbDrop = startWbDrop;
-  const bridgeHost = options.bridgeHostIndex ?? -1;
-  const bridgeRoundIndex = options.bridgeRoundIndex ?? -1;
 
   while (lbR < 20) {
     const prev = lb[lbR - 1];
@@ -134,16 +158,7 @@ export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options 
 
     if (wbDrop < wbRounds) {
       const wbRound = wb[wbDrop];
-      const bridgeMatch =
-        bridgeHost >= 0 && bridgeRoundIndex >= 0 && lbR === bridgeRoundIndex + 1
-          ? lb[bridgeRoundIndex]?.[0]
-          : null;
-      const prevForDrop =
-        bridgeMatch && bridgeRoundIndex === lbR - 1 ? lb[0] : prev;
-      const drop = buildLbDropRound(prevForDrop, wbRound, lbR, mkId, {
-        bridgeHostIndex: bridgeMatch ? bridgeHost : -1,
-        bridgeMatch,
-      });
+      const drop = buildLbDropRound(prev, wbRound, lbR, mkId);
       lb[lbR] = drop.round;
       matches.push(...drop.matches);
       lbR++;
@@ -280,19 +295,21 @@ export function rebuildLbFromDrop(bracket, mkId) {
   let startWbDrop = 1;
   const bridgeMatches = [];
 
-  if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost]) {
-    const bridge = createMatch(nextId(), "losers", 1, 0);
-    bridge.feedA = feed(bracket.lb[0][bridgeHost], "winner");
-    bridge.feedB = prelimFeed;
-    bracket.lb[1] = [bridge];
-    bridgeMatches.push(bridge);
+  if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost] && wb[1]) {
+    const built = buildLb1WithPrelimBridge(
+      bracket.lb[0],
+      wb[1],
+      bridgeHost,
+      prelimFeed,
+      nextId
+    );
+    bracket.lb[1] = built.round;
+    bridgeMatches.push(...built.matches);
     startLbR = 2;
+    startWbDrop = 2;
   }
 
-  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId, {
-    bridgeHostIndex: prelimFeed ? bridgeHost : -1,
-    bridgeRoundIndex: prelimFeed ? 1 : -1,
-  });
+  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId);
   bracket.matches.push(...bridgeMatches, ...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
