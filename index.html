@@ -1215,6 +1215,17 @@
       );
     }
 
+    function showPublishedContent() {
+      const teams = document.getElementById("teamsSection");
+      const bracket = document.getElementById("bracketSection");
+      const empty = document.getElementById("emptyBracket");
+      const toolbar = document.getElementById("toolbar");
+      if (toolbar) toolbar.hidden = true;
+      if (teams) teams.hidden = false;
+      if (empty) empty.hidden = hasBracketData(state);
+      if (bracket) bracket.hidden = !hasBracketData(state);
+    }
+
     function showUnpublishedMessage() {
       showTournamentView();
       document.getElementById("teamsSection").hidden = true;
@@ -1224,12 +1235,14 @@
       if (empty) empty.hidden = false;
       if (msg) {
         msg.innerHTML =
-          "Este torneo <strong>aún no tiene cuadro sorteado</strong> o no está disponible en este momento.<br><br>" +
+          "Este torneo <strong>aún no tiene cuadro publicado en la nube</strong>. " +
+          "Si eres el organizador, abre el panel de admin, inicia sesión y pulsa <strong>Publicar en la nube</strong> " +
+          "(o vuelve a sortear con sesión iniciada).<br><br>" +
           '<a href="index.html" style="color:var(--accent)">← Ver todos los torneos</a>';
       }
       const el = document.getElementById("dbStatus");
       if (el) {
-        el.textContent = "No publicado";
+        el.textContent = "Cuadro no publicado";
         el.className = "db-status offline";
       }
     }
@@ -1589,21 +1602,17 @@
       el.className = "db-status" + (anyRemote ? " online" : " offline");
     }
 
-    /** Carga torneo desde la API del servidor (rápido, sin esperar Firebase). */
+    /** Carga torneo desde la API del servidor (complemento; Firestore manda en vista pública). */
     async function loadFromServerApi() {
       if (isFileMode || !getApiUrl()) return false;
       try {
         const res = await fetch(getApiUrl());
-        if (res.status === 403) {
-          showUnpublishedMessage();
-          return false;
-        }
+        if (res.status === 403) return false;
         if (!res.ok) return false;
         const json = await res.json();
         if (json.name) publicTournamentMeta.name = json.name;
         if (!json.data) return false;
-        const local = readLocalPayload();
-        const merged = resolvePayloadForView(local, json.data, { prefer: "cloud" });
+        const merged = resolvePayloadForView(readLocalPayloadForMerge(), json.data, { prefer: "cloud" });
         if (merged) applyMergedPayload(merged);
         return !!merged;
       } catch (e) {
@@ -1633,6 +1642,12 @@
       }
     }
 
+    /** Vista pública: nunca mezclar con localStorage de otro visitante. */
+    function readLocalPayloadForMerge() {
+      if (PUBLIC_VIEW) return null;
+      return readLocalPayload();
+    }
+
     function applyMergedPayload(merged) {
       if (!merged) return false;
       applyPayload(merged);
@@ -1659,8 +1674,7 @@
 
     function applyRemoteIfNewer(cloudPayload) {
       if (!cloudPayload) return false;
-      const local = readLocalPayload();
-      const merged = resolvePayloadForView(local, cloudPayload, { prefer: "cloud" });
+      const merged = resolvePayloadForView(readLocalPayloadForMerge(), cloudPayload, { prefer: "cloud" });
       if (!merged) return false;
       if (
         typeof shouldApplyRemotePayload === "function" &&
@@ -1714,8 +1728,9 @@
     async function loadFromFirestore() {
       const cloud = await fetchCloudPayload();
       if (!cloud || typeof cloud !== "object") return false;
-      const local = readLocalPayload();
-      return applyMergedPayload(resolvePayloadForView(local, cloud, { prefer: "cloud" }));
+      return applyMergedPayload(
+        resolvePayloadForView(readLocalPayloadForMerge(), cloud, { prefer: "cloud" })
+      );
     }
 
     async function persistToFirestore(payload) {
@@ -1750,8 +1765,9 @@
         if (!res.ok) throw new Error("API " + res.status);
         const json = await res.json();
         if (!json.data) return false;
-        const local = readLocalPayload();
-        return applyMergedPayload(resolvePayloadForView(local, json.data, { prefer: "cloud" }));
+        return applyMergedPayload(
+          resolvePayloadForView(readLocalPayloadForMerge(), json.data, { prefer: "cloud" })
+        );
       } catch (e) {
         return false;
       }
@@ -3037,8 +3053,7 @@
       }
 
       const cloud = await fetchCloudPayload();
-      const local = readLocalPayload();
-      const merged = resolvePayloadForView(local, cloud, { prefer: "cloud" });
+      const merged = resolvePayloadForView(readLocalPayloadForMerge(), cloud, { prefer: "cloud" });
 
       if (merged) {
         const emptyView = !hasBracketData(state);
@@ -3099,8 +3114,6 @@
       updatePublicHeader();
 
       await pingSqliteBackend();
-      await loadFromServerApi();
-
       try {
         await loadFirebaseSdk();
         initFirebaseFromConfig();
@@ -3108,16 +3121,20 @@
         console.warn("Firebase SDK:", e);
       }
 
-      const hasData = await syncFromCloud();
-      if (!hasData && !hasBracketData(state)) {
-        const retried = await loadFromServerApi();
-        if (!retried) await syncFromCloud();
+      let hasData = await syncFromCloud();
+      if (!hasData && !isFileMode && getApiUrl()) {
+        await loadFromServerApi();
+        hasData = hasBracketData(state);
+      }
+      if (!hasData) {
+        hasData = await syncFromCloud();
       }
 
       setPublicLoading(false);
       if (!hasBracketData(state)) {
         showUnpublishedMessage();
       } else {
+        showPublishedContent();
         renderAll();
       }
       updateStorageBadge();

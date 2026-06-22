@@ -1084,10 +1084,11 @@
         (gran final BO9: campeón Winners empieza 1–0 en mapas).
         <strong>8 / 16 / 32 / 64 equipos:</strong> sorteo directo.
         <strong>Otra cantidad:</strong> preliminar hasta la potencia más cercana; perdedores van a repechaje preliminar.
-        El sorteo se guarda automáticamente en el navegador.
+        El sorteo se guarda en el navegador y, con sesión admin, se publica en Firestore para la vista pública.
       </p>
       <button type="button" class="btn-gold" id="btnDraw">Sortear / emparejar</button>
       <button type="button" class="btn-primary" id="btnSave">Guardar</button>
+      <button type="button" class="btn-ghost" id="btnPublishCloud" title="Enviar cuadro a Firestore para que el público lo vea en cualquier navegador">Publicar en la nube</button>
       <button type="button" class="btn-ghost" id="btnExport">Exportar JSON</button>
       <button type="button" class="btn-ghost" id="btnForceCloud" title="Descartar copia local antigua y cargar Firestore/servidor">Sincronizar desde nube</button>
       <button type="button" class="btn-ghost" id="btnImport">Importar JSON</button>
@@ -1217,6 +1218,7 @@
     let teamIdCounter = 1;
     let saveTimer = null;
     let saveGeneration = 0;
+    let lastRemoteSave = { okFb: null, okSql: null, at: null };
     let firebaseReady = false;
     let firestoreDb = null;
     let firebaseAuth = null;
@@ -1470,6 +1472,18 @@
       if (cfg?.enabled === true && firebaseInitError) {
         el.textContent = "Firebase: error";
         el.title = firebaseInitError;
+        el.className = "db-status offline";
+        return;
+      }
+      if (
+        hasBracketData(state) &&
+        isAdminLoggedIn() &&
+        lastRemoteSave.okFb === false &&
+        lastRemoteSave.okSql === false
+      ) {
+        el.textContent = "Solo en este navegador — pulsa Publicar en la nube";
+        el.title =
+          "El cuadro no llegó a Firestore. La vista pública en otros dispositivos no lo verá hasta publicar.";
         el.className = "db-status offline";
         return;
       }
@@ -2199,6 +2213,7 @@
       if (isAdminLoggedIn()) okFb = await persistToFirestore(payload);
       if (!isFileMode) okSql = await persistToDatabase(payload);
       await pingSqliteBackend();
+      lastRemoteSave = { okFb, okSql, at: Date.now() };
       return { okFb, okSql };
     }
 
@@ -3078,7 +3093,7 @@
       match.confirmed = true;
       autoByeAdvance();
       afterMatchConfirmed(match);
-      save();
+      save(false, true);
       renderBracket();
       checkChampion();
       return null;
@@ -3693,9 +3708,17 @@
       if (okFb) parts.push("Firestore");
       if (okSql) parts.push("servidor");
       if (!okFb && window.FIREBASE_SC2_CONFIG?.enabled && !isAdminLoggedIn()) {
-        parts.push("— inicia sesión admin para no perder el cuadro si Render reinicia");
+        parts.push("— inicia sesión admin para que el público vea el cuadro");
       }
       showToast(parts.join(" · "));
+      if (!okFb && !okSql) {
+        alert(
+          "El cuadro quedó guardado SOLO en este navegador.\n\n" +
+            "Para que cualquier persona lo vea en otro dispositivo:\n" +
+            "1) Inicia sesión como admin\n" +
+            "2) Pulsa «Publicar en la nube»"
+        );
+      }
     }
 
     function syncTeamsFromDOM() {
@@ -4370,6 +4393,13 @@
     document.getElementById("btnExport").addEventListener("click", exportBackup);
     document.getElementById("btnForceCloud").addEventListener("click", () => {
       forceCloudSync().catch((e) => showToast(e.message || "Error al sincronizar"));
+    });
+    document.getElementById("btnPublishCloud").addEventListener("click", () => {
+      if (!isAdminLoggedIn()) {
+        showToast("Inicia sesión admin para publicar en Firestore.");
+        return;
+      }
+      flushSaveToRemote(false).catch((e) => showToast(e.message || "Error al publicar"));
     });
 
     document.getElementById("btnImport").addEventListener("click", () => {
