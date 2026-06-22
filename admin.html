@@ -1338,21 +1338,34 @@
       refreshRoundFormatsFromState();
       reconcileBracketMatches();
       sanitizeAllMatchFeeds();
-      if (state.bracket && window.BracketEngine && !isLegacyPrincipalTournament()) {
+      if (state.bracket && window.BracketEngine) {
         let fixSeq = state.bracket.matches?.length || 0;
-        const repair = window.BracketEngine.repairOrphanPrelimLbEntries(
+        const mkFix = () => `m-fix-${fixSeq++}`;
+        if (!isLegacyPrincipalTournament()) {
+          const repair = window.BracketEngine.repairOrphanPrelimLbEntries(
+            state.bracket,
+            mkFix
+          );
+          if (repair?.changed) {
+            reconcileBracketMatches();
+            if (!repair.preservedConfirmed) autoByeAdvance();
+            queueMicrotask(() =>
+              showToast(
+                repair.preservedConfirmed
+                  ? "Repechaje preliminar enlazado. Revisa el cuadro y guarda."
+                  : "Repechaje corregido. Revisa el cuadro y guarda."
+              )
+            );
+          }
+        }
+        const wbRepair = window.BracketEngine.repairOrphanWbLosersToLb(
           state.bracket,
-          () => `m-fix-${fixSeq++}`
+          mkFix
         );
-        if (repair?.changed) {
+        if (wbRepair?.changed) {
           reconcileBracketMatches();
-          if (!repair.preservedConfirmed) autoByeAdvance();
           queueMicrotask(() =>
-            showToast(
-              repair.preservedConfirmed
-                ? "Lokito vs ganador del cruce 4 de LB R1; el ganador de ese duelo juega el cruce 4 de LB R2 contra el perdedor de Winners. Guarda."
-                : "Repechaje corregido. Revisa el cuadro y guarda."
-            )
+            showToast("Perdedores de Winners enlazados al repechaje. Revisa y guarda.")
           );
         }
       }

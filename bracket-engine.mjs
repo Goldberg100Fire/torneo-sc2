@@ -67,6 +67,8 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
   const matches = [];
   const bridgeHost = options.bridgeHostIndex ?? -1;
   const bridgeMatch = options.bridgeMatch || null;
+  const orphanWbLosers = options.orphanWbLosers ? [...options.orphanWbLosers] : [];
+  let orphanIdx = 0;
   const slotCount = Math.max(prev.length, wbRound.length);
 
   for (let slot = 0; slot < slotCount; slot++) {
@@ -78,6 +80,8 @@ export function buildLbDropRound(prev, wbRound, lbR, mkId, options = {}) {
       match.feedA = feed(prev[slot], "winner");
       if (slot < wbRound.length) {
         match.feedB = feed(wbRound[slot], "loser");
+      } else if (orphanIdx < orphanWbLosers.length) {
+        match.feedB = feed(orphanWbLosers[orphanIdx++], "loser");
       } else {
         match.teamB = `bye-${match.id}`;
       }
@@ -146,11 +150,12 @@ export function buildLbConsolidationRound(prevRound, lbR, mkId) {
  * A partir de lb[0] ya definido, genera lb[1..] y devuelve cruces nuevos.
  * options.bridgeHostIndex + bridge en lb[bridgeRoundIndex]: bajada WB usa ganador del puente.
  */
-export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, _options = {}) {
+export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, options = {}) {
   const matches = [];
   const wbRounds = wb.length;
   let lbR = startLbR;
   let wbDrop = startWbDrop;
+  let pendingOrphans = options.orphanWbLosers ? [...options.orphanWbLosers] : [];
 
   while (lbR < 20) {
     const prev = lb[lbR - 1];
@@ -158,7 +163,10 @@ export function extendLbRoundsFrom(wb, lb, startLbR, startWbDrop, mkId, _options
 
     if (wbDrop < wbRounds) {
       const wbRound = wb[wbDrop];
-      const drop = buildLbDropRound(prev, wbRound, lbR, mkId);
+      const drop = buildLbDropRound(prev, wbRound, lbR, mkId, {
+        orphanWbLosers: pendingOrphans,
+      });
+      pendingOrphans = [];
       lb[lbR] = drop.round;
       matches.push(...drop.matches);
       lbR++;
@@ -294,8 +302,10 @@ export function rebuildLbFromDrop(bracket, mkId) {
   let startLbR = 1;
   let startWbDrop = 1;
   const bridgeMatches = [];
+  const orphanWbLosers = [];
 
   if (prelimFeed && bridgeHost >= 0 && bracket.lb[0][bridgeHost] && wb[1]) {
+    if (wb[1][bridgeHost]) orphanWbLosers.push(wb[1][bridgeHost]);
     const built = buildLb1WithPrelimBridge(
       bracket.lb[0],
       wb[1],
@@ -309,7 +319,9 @@ export function rebuildLbFromDrop(bracket, mkId) {
     startWbDrop = 2;
   }
 
-  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId);
+  const ext = extendLbRoundsFrom(wb, bracket.lb, startLbR, startWbDrop, nextId, {
+    orphanWbLosers,
+  });
   bracket.matches.push(...bridgeMatches, ...ext.matches);
 
   const tail = attachLbFinalAndGrand(wb, bracket.lb, ext.lbR, nextId);
@@ -572,6 +584,48 @@ export function repairOrphanPrelimLbEntries(bracket, mkId) {
 
   if (repairOrphanPrelimMinimal(bracket, nextId, orphans)) changed = true;
   return { changed, preservedConfirmed: true };
+}
+
+/** Perdedores WB sin cruce de repechaje asignado. */
+export function findOrphanWbLosers(bracket) {
+  const orphans = [];
+  for (const round of bracket.wb || []) {
+    for (const m of round) {
+      const hasDest = (bracket.matches || []).some(
+        (x) =>
+          (x.feedA?.matchId === m.id && x.feedA?.slot === "loser") ||
+          (x.feedB?.matchId === m.id && x.feedB?.slot === "loser")
+      );
+      if (!hasDest) orphans.push(m);
+    }
+  }
+  return orphans;
+}
+
+/**
+ * Repara perdedores WB huérfanos (p. ej. cuartos en hueco preliminar).
+ * Sin tocar cruces LB ya confirmados.
+ */
+export function repairOrphanWbLosersToLb(bracket, mkId) {
+  const orphans = findOrphanWbLosers(bracket);
+  if (!orphans.length) return { changed: false };
+
+  let changed = false;
+  for (const wbM of orphans) {
+    if (wbM.confirmed) continue;
+    const drop = (bracket.matches || []).find(
+      (m) =>
+        m.bracket === "losers" &&
+        !m.confirmed &&
+        m.feedA?.slot === "winner" &&
+        (!m.feedB || m.teamB?.startsWith?.("bye-"))
+    );
+    if (!drop) continue;
+    drop.feedB = feed(wbM, "loser");
+    drop.teamB = null;
+    changed = true;
+  }
+  return { changed };
 }
 
 /** Todos los cruces de repechaje (salvo gran final) deben tener al menos un feed de salida. */
