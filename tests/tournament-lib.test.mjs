@@ -165,13 +165,18 @@ test("resolvePublicPayload prefers cloud bracket over stale local cache", () => 
   assert.equal(merged.teams[0].name, "Nube");
 });
 
-test("feedBlocksSide ignores stale feed when direct team is set", () => {
+test("feedBlocksSide ignores direct seed without feed", () => {
+  const match = { teamA: "t1", feedA: null };
+  assert.equal(feedBlocksSide(match, "A", () => null), false);
+});
+
+test("feedBlocksSide blocks when feed unresolved even with stale team id", () => {
   const match = {
     teamA: "t1",
     feedA: { matchId: "prev", slot: "winner" },
   };
-  const resolveFeed = () => null;
-  assert.equal(feedBlocksSide(match, "A", resolveFeed), false);
+  assert.equal(feedBlocksSide(match, "A", () => null), true);
+  assert.equal(feedBlocksSide(match, "A", () => "t1"), false);
 });
 
 test("feedBlocksSide blocks when feed unresolved and no direct team", () => {

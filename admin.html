@@ -2728,8 +2728,10 @@
     }
 
     function sanitizeStaleMatchFeeds(match) {
-      if (match.feedA && match.teamA && !resolveFeed(match.feedA)) match.feedA = null;
-      if (match.feedB && match.teamB && !resolveFeed(match.feedB)) match.feedB = null;
+      if (match.feedA && match.teamA && !resolveFeed(match.feedA)) match.teamA = null;
+      if (match.feedB && match.teamB && !resolveFeed(match.feedB)) match.teamB = null;
+      if (match.feedA && match.teamA && resolveFeed(match.feedA)) match.feedA = null;
+      if (match.feedB && match.teamB && resolveFeed(match.feedB)) match.feedB = null;
     }
 
     function sanitizeAllMatchFeeds() {
@@ -3802,12 +3804,14 @@
 
     function findDestinations(match) {
       const out = [];
+      const seen = new Set();
       for (const m of getAllMatchesList()) {
-        if (m.feedA?.matchId === match.id) {
-          out.push({ dest: m, path: m.feedA.slot });
-        }
-        if (m.feedB?.matchId === match.id) {
-          out.push({ dest: m, path: m.feedB.slot });
+        for (const f of [m.feedA, m.feedB]) {
+          if (f?.matchId !== match.id) continue;
+          const key = m.id + ":" + f.slot;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ dest: m, path: f.slot });
         }
       }
       return out;
@@ -3821,7 +3825,11 @@
     function matchShortLabel(m) {
       const cruce = m.index + 1;
       if (m.bracket === "preliminary") return "Prelim. ganadores · Cruce " + cruce;
-      if (m.bracket === "preliminary-lb") return "Prelim. repechaje · Cruce " + cruce;
+      if (m.bracket === "preliminary-lb") {
+        const prelimLbRounds = state.preliminary?.loserRounds?.length || 0;
+        const roundTag = prelimLbRounds > 1 ? " · R" + (m.round + 1) : "";
+        return "Prelim. repechaje" + roundTag + " · Cruce " + cruce;
+      }
       if (m.bracket === "grand") return "Gran final";
       if (m.bracket === "winners" && state.bracket?.wb) {
         const names = wbRoundNames(state.bracket.wb.length);
@@ -3829,6 +3837,26 @@
       }
       if (m.bracket === "losers") return "LB R" + (m.round + 1) + " · Cruce " + cruce;
       return m.id;
+    }
+
+    function matchPhaseLabel(match) {
+      if (match.bracket === "grand") return "Gran final";
+      if (match.bracket === "preliminary") return "Preliminar ganadores";
+      if (match.bracket === "preliminary-lb") return "Preliminar repechaje";
+      if (match.bracket === "winners" && state.bracket?.wb) {
+        const names = wbRoundNames(state.bracket.wb.length);
+        return names[match.round] || "Ronda " + (match.round + 1);
+      }
+      if (match.bracket === "losers" && state.bracket?.lb) {
+        const lb = state.bracket.lb;
+        const isFinal =
+          match.round === lb.length - 1 && lb[match.round]?.length === 1;
+        if (isFinal) return "Final repechaje";
+        const bo = match.bestOf ?? 5;
+        if (bo === 7 && lb[match.round]?.length <= 2) return "Semifinal";
+        return "R" + (match.round + 1);
+      }
+      return "Ronda";
     }
 
     function pathLabel(path) {
@@ -4009,16 +4037,7 @@
               : match.bracket === "losers"
                 ? "LB"
                 : "GF";
-      const phase =
-        match.bracket === "preliminary"
-          ? "Preliminar ganadores"
-          : match.bracket === "preliminary-lb"
-            ? "Preliminar repechaje"
-            : match.bracket === "grand"
-            ? "Gran final"
-            : bo === 7
-              ? "Semifinal"
-              : "Ronda inicial";
+      const phase = matchPhaseLabel(match);
       idLabel.textContent = `${bracketLabel} · ${phase} · BO${bo}`;
       card.appendChild(idLabel);
 
@@ -4276,6 +4295,7 @@
 
       section.hidden = false;
       empty.hidden = true;
+      sanitizeAllMatchFeeds();
       renderDrawInfoBanner();
 
       const winnersTitle = document.getElementById("winnersTitle");

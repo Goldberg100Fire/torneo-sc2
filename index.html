@@ -2379,12 +2379,14 @@
 
     function findDestinations(match) {
       const out = [];
+      const seen = new Set();
       for (const m of getAllMatchesList()) {
-        if (m.feedA?.matchId === match.id) {
-          out.push({ dest: m, path: m.feedA.slot });
-        }
-        if (m.feedB?.matchId === match.id) {
-          out.push({ dest: m, path: m.feedB.slot });
+        for (const f of [m.feedA, m.feedB]) {
+          if (f?.matchId !== match.id) continue;
+          const key = m.id + ":" + f.slot;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ dest: m, path: f.slot });
         }
       }
       return out;
@@ -2398,7 +2400,11 @@
     function matchShortLabel(m) {
       const cruce = m.index + 1;
       if (m.bracket === "preliminary") return "Prelim. ganadores · Cruce " + cruce;
-      if (m.bracket === "preliminary-lb") return "Prelim. repechaje · Cruce " + cruce;
+      if (m.bracket === "preliminary-lb") {
+        const prelimLbRounds = state.preliminary?.loserRounds?.length || 0;
+        const roundTag = prelimLbRounds > 1 ? " · R" + (m.round + 1) : "";
+        return "Prelim. repechaje" + roundTag + " · Cruce " + cruce;
+      }
       if (m.bracket === "grand") return "Gran final";
       if (m.bracket === "winners" && state.bracket?.wb) {
         const wbRounds = state.bracket.wb.length;

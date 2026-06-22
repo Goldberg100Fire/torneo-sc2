@@ -238,13 +238,11 @@ export function createTournamentLib(options = {}) {
     return mergePayload(local, cloud);
   }
 
-  /** Solo bloquea si el equipo viene de un feed y aún no hay ganador (no si ya hay teamA/B). */
+  /** Bloquea si el lado depende de un feed que aún no tiene ganador/perdedor. */
   function feedBlocksSide(match, side, resolveFeed) {
-    const feed = side === "A" ? match.feedA : match.feedB;
-    const directId = side === "A" ? match.teamA : match.teamB;
-    if (!feed) return false;
-    if (directId) return false;
-    return !resolveFeed(feed);
+    const feedObj = side === "A" ? match.feedA : match.feedB;
+    if (!feedObj) return false;
+    return !resolveFeed(feedObj);
   }
 
   return {
