@@ -29,6 +29,19 @@ test("hasBracketData lists legacy brackets without explicit drawn flag", () => {
   assert.equal(hasBracketData(basePayload()), true);
 });
 
+test("hasBracketData lists tournaments with confirmed matches", () => {
+  const p = {
+    drawn: false,
+    teams: [{ id: "t1", name: "A", players: [] }],
+    bracket: {
+      wb: [[{ id: "m1", confirmed: true, scoreA: 2, scoreB: 0 }]],
+      lb: [],
+      matches: [{ id: "m1", confirmed: true }],
+    },
+  };
+  assert.equal(hasBracketData(p), true);
+});
+
 test("mergePayload prefers cloud when savedAt and confirmed matches are newer", () => {
   const local = basePayload({
     savedAt: "2026-05-01T10:00:00.000Z",

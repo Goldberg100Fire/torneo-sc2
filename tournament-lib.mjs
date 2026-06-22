@@ -14,8 +14,11 @@ export function createTournamentLib(options = {}) {
 
   /** Cuadro visible en web pública: estructura real y no marcado como borrador. */
   function isPubliclyListable(p) {
-    if (!p || p.drawn === false) return false;
-    return hasBracketStructure(p);
+    if (!p) return false;
+    if (countConfirmedMatchesInPayload(p) > 0) return true;
+    if (p.drawn === false) return false;
+    if (hasBracketStructure(p)) return true;
+    return !!p.drawInfo?.drawnAt && hasBracketStructure(p);
   }
 
   function hasBracketData(p) {

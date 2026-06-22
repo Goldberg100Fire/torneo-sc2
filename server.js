@@ -29,31 +29,58 @@ const FIRESTORE_DOCUMENT_ID = "principal";
 const tournamentLib = createTournamentLib({ maxPlayersPerTeam: 6 });
 
 function publicTournamentEntry(id, name, payload, updatedAt) {
-  if (!tournamentLib.hasBracketData(payload)) return null;
+  if (!tournamentLib.isPubliclyListable(payload)) return null;
   return {
     id,
     name: name || payload?.tournamentName || id,
     drawn: true,
     teamCount: payload?.teams?.length || 0,
-    updatedAt: updatedAt || payload?.savedAt || null,
+    updatedAt: updatedAt || payload?.savedAt || payload?.drawInfo?.drawnAt || null,
   };
+}
+
+function extractFirestorePayload(docData) {
+  if (!docData || typeof docData !== "object") return null;
+  if (docData.payload != null && typeof docData.payload === "object") return docData.payload;
+  if (docData.data != null && typeof docData.data === "object") return docData.data;
+  return null;
 }
 
 async function readPublishedPrincipalEntry() {
   const sqlite = readSqliteTournamentPayload();
   const firestore = await readFirestoreTournamentPayload();
   if (!sqlite && !firestore) return null;
-  const data =
-    firestore && sqlite
-      ? tournamentLib.mergePayload(sqlite.data, firestore.data, { prefer: "cloud" })
-      : firestore?.data || sqlite?.data;
-  const updatedAt =
-    data?.savedAt || firestore?.updatedAt || sqlite?.updatedAt || null;
+
+  const candidates = [];
+  if (firestore?.data) {
+    candidates.push({
+      data: firestore.data,
+      updatedAt: firestore.updatedAt,
+      name: firestore.data?.tournamentName || "Torneo principal",
+    });
+  }
+  if (sqlite?.data) {
+    candidates.push({
+      data: sqlite.data,
+      updatedAt: sqlite.updatedAt,
+      name: sqlite.data?.tournamentName || "Torneo principal",
+    });
+  }
+
+  const published = candidates.filter((c) => tournamentLib.isPubliclyListable(c.data));
+  const pick =
+    published.sort(
+      (a, b) =>
+        tournamentLib.payloadScore(b.data) - tournamentLib.payloadScore(a.data) ||
+        Date.parse(b.data?.savedAt || 0) - Date.parse(a.data?.savedAt || 0)
+    )[0] || null;
+
+  if (!pick) return null;
   return publicTournamentEntry(
     LEGACY_TOURNAMENT_ID,
-    data?.tournamentName || "Torneo principal",
-    data,
-    updatedAt
+    pick.name,
+    pick.data,
+    pick.updatedAt || pick.data?.savedAt || null
   );
 }
 
@@ -435,12 +462,16 @@ app.get("/api/tournaments/public", async (_req, res) => {
       for (const d of snap.docs) {
         if (!isUserTournamentId(d.id)) continue;
         const data = d.data();
-        const payload = data.payload != null ? data.payload : data.data;
+        const payload = extractFirestorePayload(data);
+        if (!payload) continue;
         const entry = publicTournamentEntry(
           d.id,
           data.name,
           payload,
-          data.updatedAt?.toDate?.()?.toISOString?.() || payload?.savedAt || null
+          data.updatedAt?.toDate?.()?.toISOString?.() ||
+            payload?.savedAt ||
+            payload?.drawInfo?.drawnAt ||
+            null
         );
         if (entry) tournaments.push(entry);
       }

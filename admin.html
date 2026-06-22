@@ -2063,6 +2063,9 @@
               {
                 payload,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                ...(doc.startsWith("ut_") && activeTournamentName
+                  ? { name: activeTournamentName }
+                  : {}),
               },
               { merge: true }
             );
@@ -3278,6 +3281,104 @@
       return sel;
     }
 
+    function refillValueSelect(sel, options, currentValue) {
+      sel.innerHTML = "";
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "— elegir —";
+      sel.appendChild(empty);
+      let valid = !currentValue;
+      options.forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === currentValue) {
+          o.selected = true;
+          valid = true;
+        }
+        sel.appendChild(o);
+      });
+      if (!valid) sel.value = "";
+    }
+
+    function collectUsedTeamIds(rows) {
+      const used = new Set();
+      rows.forEach((row) => {
+        if (row.kind === "main") return;
+        if (row.selA?.value) used.add(row.selA.value);
+        if (row.selB?.value) used.add(row.selB.value);
+      });
+      return used;
+    }
+
+    function collectUsedMainSlots(rows) {
+      const used = new Set();
+      rows.forEach((row) => {
+        if (row.kind !== "main") return;
+        if (row.selA?.value) used.add(row.selA.value);
+        if (row.selB?.value) used.add(row.selB.value);
+      });
+      return used;
+    }
+
+    function attachPairingExclusionRefresh(rows, validTeams, structure) {
+      const refresh = () => {
+        const usedTeams = collectUsedTeamIds(rows);
+        const usedMain = collectUsedMainSlots(rows);
+        const inPrelim = usedTeams;
+        const directTeams = validTeams.filter((t) => {
+          const inPrelimRow = rows.some(
+            (r) =>
+              r.kind === "prelim" &&
+              (r.selA?.value === t.id || r.selB?.value === t.id)
+          );
+          return !inPrelimRow;
+        });
+        const baseMainOpts = buildMainSlotOptions(
+          directTeams,
+          structure.prelimPairCount || 0
+        );
+
+        rows.forEach((row) => {
+          if (row.kind === "main") {
+            const optsA = baseMainOpts.filter(
+              (o) => !usedMain.has(o.value) || o.value === row.selA.value
+            );
+            const optsB = baseMainOpts.filter(
+              (o) => !usedMain.has(o.value) || o.value === row.selB.value
+            );
+            refillValueSelect(row.selA, optsA, row.selA.value);
+            refillValueSelect(row.selB, optsB, row.selB.value);
+          } else {
+            const poolFor = (currentId) =>
+              validTeams.filter((t) => !usedTeams.has(t.id) || t.id === currentId);
+            refillValueSelect(
+              row.selA,
+              poolFor(row.selA.value).map((t) => ({
+                value: t.id,
+                label: t.name.trim() || t.id,
+              })),
+              row.selA.value
+            );
+            refillValueSelect(
+              row.selB,
+              poolFor(row.selB.value).map((t) => ({
+                value: t.id,
+                label: t.name.trim() || t.id,
+              })),
+              row.selB.value
+            );
+          }
+        });
+      };
+      rows.forEach((row) => {
+        row.selA.addEventListener("change", refresh);
+        row.selB.addEventListener("change", refresh);
+      });
+      refresh();
+      return refresh;
+    }
+
     function openManualPairingDialog(validTeams) {
       const structure = calcDrawStructure(validTeams.length);
       const backdrop = document.createElement("div");
@@ -3337,50 +3438,18 @@
           " cruces de la primera ronda.";
         modal.appendChild(p2);
 
-        const prelimRows = () => rows.filter((r) => r.kind === "prelim");
-        const mainSlotOptions = () => {
-          const prelimPairs = prelimRows().map((r) => [r.selA.value, r.selB.value]);
-          const inPrelim = new Set(prelimPairs.flat().filter(Boolean));
-          const directTeams = validTeams.filter((t) => !inPrelim.has(t.id));
-          return buildMainSlotOptions(directTeams, structure.prelimPairCount);
-        };
-
-        const mainRows = [];
         for (let i = 0; i < structure.mainPairCount; i++) {
           const row = document.createElement("div");
           row.className = "pair-row";
-          const opts = mainSlotOptions();
-          const selA = slotSelectOptions("", opts);
-          const selB = slotSelectOptions("", opts);
+          const selA = slotSelectOptions("", []);
+          const selB = slotSelectOptions("", []);
           row.append(selA, document.createTextNode("vs"), selB);
           modal.appendChild(row);
-          const entry = { selA, selB, kind: "main", refreshOptions: null };
-          entry.refreshOptions = () => {
-            const fresh = mainSlotOptions();
-            [selA, selB].forEach((sel) => {
-              const cur = sel.value;
-              sel.innerHTML = "";
-              const empty = document.createElement("option");
-              empty.value = "";
-              empty.textContent = "— elegir —";
-              sel.appendChild(empty);
-              fresh.forEach((opt) => {
-                const o = document.createElement("option");
-                o.value = opt.value;
-                o.textContent = opt.label;
-                if (opt.value === cur) o.selected = true;
-                sel.appendChild(o);
-              });
-            });
-          };
-          prelimRows().forEach((pr) => {
-            pr.selA.addEventListener("change", entry.refreshOptions);
-            pr.selB.addEventListener("change", entry.refreshOptions);
-          });
-          mainRows.push(entry);
-          rows.push(entry);
+          rows.push({ selA, selB, kind: "main" });
         }
       }
+
+      attachPairingExclusionRefresh(rows, validTeams, structure);
 
       const confirm = document.createElement("button");
       confirm.type = "button";

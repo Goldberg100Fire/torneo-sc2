@@ -968,15 +968,20 @@
 
     async function loadPublicHubFromFirestore() {
       const cfg = window.FIREBASE_SC2_CONFIG;
-      if (!firebaseReady || !firestoreDb || !cfg?.enabled) return [];
+      if (!firebaseReady || !firestoreDb || !cfg?.enabled) return { list: [], permissionDenied: false };
       try {
         const snap = await firestoreDb.collection(cfg.firestoreCollection).get();
         const out = [];
         snap.forEach((doc) => {
           if (doc.id === "admin_roles") return;
           const data = doc.data();
-          const payload = data.payload != null ? data.payload : data.data;
-          if (!hasBracketData(payload)) return;
+          const payload =
+            data.payload != null
+              ? data.payload
+              : data.data != null
+                ? data.data
+                : null;
+          if (!payload || !hasBracketData(payload)) return;
           out.push({
             id: doc.id,
             name:
@@ -985,13 +990,16 @@
               (doc.id === "principal" ? "Torneo principal" : doc.id),
             drawn: true,
             teamCount: payload?.teams?.length || 0,
-            updatedAt: payload?.savedAt || null,
+            updatedAt: payload?.savedAt || payload?.drawInfo?.drawnAt || null,
           });
         });
-        return out;
+        return { list: out, permissionDenied: false };
       } catch (e) {
         console.warn("hub Firestore:", e);
-        return [];
+        const denied =
+          e?.code === "permission-denied" ||
+          String(e?.message || "").toLowerCase().includes("permission");
+        return { list: [], permissionDenied: denied };
       }
     }
 
@@ -1045,7 +1053,8 @@
         }
       }
 
-      const fromFs = await loadPublicHubFromFirestore();
+      const fsResult = await loadPublicHubFromFirestore();
+      const fromFs = fsResult.list || [];
       const byId = new Map();
       [...fromApi, ...fromFs].forEach((t) => {
         if (t?.id) byId.set(t.id, t);
@@ -1061,9 +1070,15 @@
 
       if (empty && publicHubTournaments.length === 0) {
         empty.hidden = false;
-        empty.textContent = apiError && !fromFs.length
-          ? "No se pudo cargar la lista. Comprueba la conexión o recarga la página."
-          : "Aún no hay torneos publicados con cuadro sorteado.";
+        if (fsResult.permissionDenied) {
+          empty.textContent =
+            "No se pudo leer Firestore (permisos). Publica firestore.rules en Firebase Console y recarga.";
+        } else if (apiError && !fromFs.length) {
+          empty.textContent = "No se pudo cargar la lista. Comprueba la conexión o recarga la página.";
+        } else {
+          empty.textContent =
+            "Aún no hay torneos publicados con cuadro sorteado. En el admin, pulsa Guardar tras sortear.";
+        }
       }
     }
 
