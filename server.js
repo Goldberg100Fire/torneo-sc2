@@ -299,11 +299,29 @@ async function verifyCanWriteTournament(decoded, tournamentId = LEGACY_TOURNAMEN
   if (!snap.exists) return false;
   const doc = snap.data();
   const ownerUid = doc?.ownerUid;
-  if (ownerUid === decoded.uid) return true;
+  const email = normalizeEmail(decoded.email);
   const ownerEmail = normalizeEmail(doc?.ownerEmail);
-  if (ownerEmail && ownerEmail === normalizeEmail(decoded.email)) return true;
+  if (ownerUid === decoded.uid) return true;
+  if (ownerEmail && email && ownerEmail === email) return true;
   if (!ownerUid && (await verifyEditor(decoded))) return true;
+  if (await verifyEditor(decoded)) {
+    const owned = await admin
+      .firestore()
+      .collection(FIRESTORE_COLLECTION)
+      .where("ownerUid", "==", decoded.uid)
+      .get();
+    if (owned.docs.some((d) => d.id === tournamentId)) return true;
+  }
   return false;
+}
+
+function normalizePublishPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const out = { ...payload };
+  if (tournamentLib.hasBracketStructure(out)) {
+    out.drawn = true;
+  }
+  return out;
 }
 
 /** Correos que pueden registrarse como admin principal (servidor, sin depender de reglas cliente). */
@@ -646,8 +664,8 @@ app.put("/api/tournaments/:id", async (req, res) => {
     );
     return res.status(403).json({ error: "No tienes permiso para guardar este torneo." });
   }
-  const payload = req.body;
-  if (!payload || typeof payload !== "object") {
+  const payload = normalizePublishPayload(req.body);
+  if (!payload) {
     return res.status(400).json({ error: "Cuerpo inválido" });
   }
   const current = await readFirestoreTournamentPayloadById(id);
@@ -693,6 +711,61 @@ app.put("/api/tournaments/:id", async (req, res) => {
     return;
   }
   res.json({ ok: true, updatedAt, firestoreOk, published: !!tournamentLib.isPubliclyListable(payload) });
+});
+
+/** Publicar cuadro sorteado (editores / dueños). Escritura directa en Firestore vía Admin SDK. */
+app.post("/api/tournaments/:id/publish", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!isUserTournamentId(id)) {
+    return res.status(400).json({ error: "ID de torneo inválido" });
+  }
+  const auth = await verifyAuthHeader(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+  const canWrite = await verifyCanWriteTournament(auth.decoded, id);
+  if (!canWrite) {
+    return res.status(403).json({
+      error: "No tienes permiso para publicar este torneo. Usa la cuenta que lo creó.",
+    });
+  }
+  const payload = normalizePublishPayload(req.body);
+  if (!payload || !tournamentLib.hasBracketStructure(payload)) {
+    return res.status(400).json({
+      error: "Falta el cuadro sorteado. Sortea cruces en admin y vuelve a publicar.",
+    });
+  }
+  const admin = await initFirebaseAdmin();
+  if (!admin) return res.status(503).json({ error: "Firebase Admin no configurado." });
+  const ref = admin.firestore().collection(FIRESTORE_COLLECTION).doc(id);
+  const snap = await ref.get();
+  const meta = snap.exists ? snap.data() : {};
+  const ownerUid =
+    meta.ownerUid === auth.decoded.uid ||
+    !meta.ownerUid ||
+    normalizeEmail(meta.ownerEmail) === normalizeEmail(auth.decoded.email)
+      ? auth.decoded.uid
+      : meta.ownerUid;
+  try {
+    await ref.set(
+      {
+        payload,
+        ownerUid,
+        ownerEmail: meta.ownerEmail || auth.decoded.email || null,
+        name: payload.tournamentName || meta.name || id,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    res.json({
+      ok: true,
+      firestoreOk: true,
+      published: true,
+      id,
+      name: payload.tournamentName || meta.name || id,
+    });
+  } catch (e) {
+    console.warn("POST publish:", e.message);
+    res.status(500).json({ error: "No se pudo publicar en Firestore: " + e.message });
+  }
 });
 
 app.delete("/api/tournaments/:id", async (req, res) => {

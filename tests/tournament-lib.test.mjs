@@ -28,7 +28,7 @@ function basePayload(overrides = {}) {
 
 test("hasBracketData lists legacy brackets without explicit drawn flag", () => {
   assert.equal(hasBracketData({ bracket: { wb: [[]] } }), true);
-  assert.equal(hasBracketData({ drawn: false, bracket: { wb: [[]] } }), false);
+  assert.equal(hasBracketData({ drawn: false, bracket: { wb: [[]] } }), true);
   assert.equal(hasBracketData(basePayload()), true);
 });
 
@@ -224,6 +224,9 @@ test("isIncomingStaleWrite never blocks first bracket publish", () => {
   const current = basePayload({
     teams: [],
     drawn: false,
+    bracket: null,
+    preliminary: null,
+    drawInfo: null,
     savedAt: "2026-05-26T12:00:00.000Z",
   });
   const incoming = basePayload({

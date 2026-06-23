@@ -16,8 +16,8 @@ export function createTournamentLib(options = {}) {
   function isPubliclyListable(p) {
     if (!p) return false;
     if (countConfirmedMatchesInPayload(p) > 0) return true;
-    if (p.drawn === false) return false;
     if (hasBracketStructure(p)) return true;
+    if (p.drawn === false) return false;
     return !!p.drawInfo?.drawnAt && hasBracketStructure(p);
   }
 

@@ -1337,12 +1337,14 @@
     }
 
     function getPayload(options = {}) {
+      const hasBracket =
+        !!(state.bracket?.wb?.length || state.bracket?.matches?.length || state.preliminary?.rounds?.length);
       const payload = {
         teams: state.teams,
         bracket: state.bracket,
         preliminary: state.preliminary,
         drawInfo: state.drawInfo,
-        drawn: state.drawn,
+        drawn: state.drawn || hasBracket,
         roundFormats: state.roundFormats,
         teamIdCounter,
       };
@@ -1699,14 +1701,18 @@
       if (isFileMode || !isAdminLoggedIn() || !canPublishToCloud()) {
         return { ok: false, published: false, firestoreOk: false, error: "Sin permiso o sin sesión" };
       }
+      const body = { ...payload };
+      if (hasBracketData(body)) body.drawn = true;
       try {
         const headers = await apiAuthHeaders();
-        const force = options.force !== false && hasBracketData(payload);
-        const q = force ? "?force=1" : "";
-        const res = await fetch(getApiUrl() + q, {
-          method: "PUT",
+        const publishUrl = isUserTournamentActive()
+          ? getApiUrl() + "/publish"
+          : getApiUrl() + (options.force !== false && hasBracketData(body) ? "?force=1" : "");
+        const method = isUserTournamentActive() ? "POST" : "PUT";
+        const res = await fetch(publishUrl, {
+          method,
           headers,
-          body: JSON.stringify(payload),
+          body: JSON.stringify(body),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -1717,7 +1723,7 @@
             error: json.error || "HTTP " + res.status,
           };
         }
-        if (json.stale && !force) {
+        if (method === "PUT" && json.stale && !options.force) {
           return publishTournamentViaServer(payload, { force: true });
         }
         const published = !!json.published || (await verifyCloudPublished());
@@ -1725,7 +1731,7 @@
           ok: !!json.firestoreOk || published,
           published,
           firestoreOk: !!json.firestoreOk,
-          error: null,
+          error: published ? null : json.error || "Firestore no confirmó el cuadro",
         };
       } catch (e) {
         return { ok: false, published: false, firestoreOk: false, error: e.message || String(e) };
@@ -2571,24 +2577,14 @@
 
     async function persistRemote(payload) {
       let apiResult = { ok: false, published: false, firestoreOk: false, error: null };
-      let okFb = false;
 
-      if (canPublishToCloud()) {
+      if (canPublishToCloud() && hasBracketData(payload)) {
+        apiResult = await publishTournamentViaServer(payload, { force: true });
+      } else if (canPublishToCloud()) {
         apiResult = await persistToDatabase(payload);
         if (typeof apiResult !== "object" || apiResult === null) {
           apiResult = { ok: false, published: false, firestoreOk: false, error: "respuesta inválida" };
         }
-      }
-
-      // Torneos ut_*: el servidor (Admin SDK) es la fuente de verdad para la vista pública.
-      if (isUserTournamentActive() && hasBracketData(payload) && !apiResult.published) {
-        apiResult = await publishTournamentViaServer(payload, { force: true });
-      } else if (
-        !isUserTournamentActive() &&
-        isAdminLoggedIn() &&
-        canPublishToCloud()
-      ) {
-        okFb = await persistToFirestore(payload);
       }
 
       if (apiResult.error && hasBracketData(payload)) {
@@ -2596,14 +2592,14 @@
       }
 
       await pingSqliteBackend();
-      const published = !!(apiResult.published || (await verifyCloudPublished()));
+      const published = !!(apiResult.published || (hasBracketData(payload) && (await verifyCloudPublished())));
       lastRemoteSave = {
-        okFb,
+        okFb: false,
         okSql: apiResult.firestoreOk,
         published,
         at: Date.now(),
       };
-      return { okFb, okSql: apiResult.firestoreOk, published, error: apiResult.error };
+      return { okFb: false, okSql: apiResult.firestoreOk, published, error: apiResult.error };
     }
 
     async function flushSaveToRemote(silent) {
