@@ -1223,6 +1223,8 @@
     let mergePayload;
     let choosePayload;
     let resolveAuthoritativePayload;
+    let decodePayloadFromFirestore;
+    let encodePayloadForFirestoreDoc;
 
     function bindTournamentLib() {
       const L = window.TournamentLib;
@@ -1234,6 +1236,8 @@
       mergePayload = L.mergePayload;
       choosePayload = L.choosePayload;
       resolveAuthoritativePayload = L.resolveAuthoritativePayload;
+      decodePayloadFromFirestore = L.decodePayloadFromFirestore;
+      encodePayloadForFirestoreDoc = L.encodePayloadForFirestoreDoc;
       return true;
     }
 
@@ -1615,8 +1619,8 @@
         const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió al cargar");
         if (!snap.exists) return false;
         const d = snap.data();
-        const payload = d.payload != null ? d.payload : d.data;
-        if (!payload || typeof payload !== "object") return false;
+        const payload = decodePayloadFromFirestore(d);
+        if (!payload) return false;
         applyPayload(payload);
         localStorage.setItem(getStorageKey(), JSON.stringify(payload));
         return true;
@@ -2465,16 +2469,19 @@
             const snap = await tx.get(ref);
             if (snap.exists) {
               const d = snap.data();
-              const current = d.payload != null ? d.payload : d.data;
+              const current = decodePayloadFromFirestore(d);
               const skipStale =
                 needsFirstPublish && current && !hasBracketData(current);
               if (!skipStale && isStaleTournamentWrite(payload, current)) return;
             }
             wrote = true;
+            const encoded = encodePayloadForFirestoreDoc(payload);
+            if (!encoded) return;
             tx.set(
               ref,
               {
-                payload,
+                ...encoded,
+                payload: firebase.firestore.FieldValue.delete(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 ...(doc.startsWith("ut_") && activeTournamentName
                   ? { name: activeTournamentName }
@@ -4908,7 +4915,7 @@
           const snap = await withTimeout(ref.get(), 8000, "Firestore no respondió");
           if (snap.exists) {
             const d = snap.data();
-            fromFirestore = d.payload != null ? d.payload : d.data;
+            fromFirestore = decodePayloadFromFirestore(d);
           }
         } catch (e) {
           console.warn("Firestore lectura:", e);

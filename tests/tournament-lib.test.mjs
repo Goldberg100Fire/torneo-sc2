@@ -283,3 +283,35 @@ test("feedBlocksSide blocks when feed unresolved and no direct team", () => {
   assert.equal(feedBlocksSide(match, "B", () => null), true);
   assert.equal(feedBlocksSide(match, "B", () => "t9"), false);
 });
+
+test("encodePayloadForFirestoreDoc serializes nested bracket arrays", () => {
+  const { encodePayloadForFirestoreDoc, decodePayloadFromFirestore } = createTournamentLib();
+  const payload = basePayload({
+    bracket: {
+      wb: [[{ id: "m1" }, { id: "m2" }], [{ id: "m3" }]],
+      lb: [[{ id: "l1" }]],
+      matches: [],
+    },
+  });
+  const encoded = encodePayloadForFirestoreDoc(payload);
+  assert.ok(encoded?.payloadEncoded);
+  assert.equal(typeof encoded.payloadEncoded, "string");
+  const roundTrip = decodePayloadFromFirestore(encoded);
+  assert.deepEqual(roundTrip?.bracket?.wb, payload.bracket.wb);
+});
+
+test("decodePayloadFromFirestore prefers payloadEncoded over legacy payload", () => {
+  const { decodePayloadFromFirestore } = createTournamentLib();
+  const fresh = basePayload({ tournamentName: "Nuevo" });
+  const doc = {
+    payload: { tournamentName: "Viejo", teams: [] },
+    payloadEncoded: JSON.stringify(fresh),
+  };
+  assert.equal(decodePayloadFromFirestore(doc)?.tournamentName, "Nuevo");
+});
+
+test("decodePayloadFromFirestore reads legacy payload object", () => {
+  const { decodePayloadFromFirestore } = createTournamentLib();
+  const legacy = basePayload();
+  assert.deepEqual(decodePayloadFromFirestore({ payload: legacy }), legacy);
+});

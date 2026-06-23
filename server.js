@@ -40,10 +40,18 @@ function publicTournamentEntry(id, name, payload, updatedAt) {
 }
 
 function extractFirestorePayload(docData) {
-  if (!docData || typeof docData !== "object") return null;
-  if (docData.payload != null && typeof docData.payload === "object") return docData.payload;
-  if (docData.data != null && typeof docData.data === "object") return docData.data;
-  return null;
+  return tournamentLib.decodePayloadFromFirestore(docData);
+}
+
+function buildFirestoreWriteFields(admin, payload, extra = {}) {
+  const encoded = tournamentLib.encodePayloadForFirestoreDoc(payload);
+  if (!encoded) return null;
+  return {
+    ...encoded,
+    payload: admin.firestore.FieldValue.delete(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...extra,
+  };
 }
 
 async function readPublishedPrincipalEntry() {
@@ -146,8 +154,8 @@ async function readFirestoreTournamentPayloadById(documentId) {
       .get();
     if (!snap.exists) return null;
     const doc = snap.data();
-    const payload = doc.payload != null ? doc.payload : doc.data;
-    if (!payload || typeof payload !== "object") return null;
+    const payload = extractFirestorePayload(doc);
+    if (!payload) return null;
     return {
       data: payload,
       updatedAt: doc.updatedAt?.toDate?.()?.toISOString?.() || payload.savedAt || null,
@@ -173,11 +181,7 @@ async function writeFirestoreTournamentPayloadById(documentId, payload, extra = 
     const firestore = admin.firestore();
     const ref = firestore.collection(FIRESTORE_COLLECTION).doc(documentId);
     const snap = await ref.get();
-    const current = snap.exists
-      ? snap.data().payload != null
-        ? snap.data().payload
-        : snap.data().data
-      : null;
+    const current = snap.exists ? extractFirestorePayload(snap.data()) : null;
     const needsFirstPublish =
       tournamentLib.isPubliclyListable(payload) && !tournamentLib.isPubliclyListable(current);
     const useDirectSet =
@@ -185,15 +189,11 @@ async function writeFirestoreTournamentPayloadById(documentId, payload, extra = 
       needsFirstPublish ||
       (isUserTournamentId(documentId) && tournamentLib.isPubliclyListable(payload));
 
+    const writeFields = buildFirestoreWriteFields(admin, payload, extra);
+    if (!writeFields) return false;
+
     if (useDirectSet) {
-      await ref.set(
-        {
-          payload,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          ...extra,
-        },
-        { merge: true }
-      );
+      await ref.set(writeFields, { merge: true });
       return true;
     }
 
@@ -201,20 +201,11 @@ async function writeFirestoreTournamentPayloadById(documentId, payload, extra = 
     await firestore.runTransaction(async (tx) => {
       const txSnap = await tx.get(ref);
       if (txSnap.exists) {
-        const doc = txSnap.data();
-        const cur = doc.payload != null ? doc.payload : doc.data;
+        const cur = extractFirestorePayload(txSnap.data());
         if (isStaleTournamentWrite(payload, cur)) return;
       }
       wrote = true;
-      tx.set(
-        ref,
-        {
-          payload,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          ...extra,
-        },
-        { merge: true }
-      );
+      tx.set(ref, writeFields, { merge: true });
     });
     return wrote;
   } catch (e) {
@@ -569,12 +560,13 @@ app.get("/api/tournaments", async (req, res) => {
       .filter((d) => isUserTournamentId(d.id))
       .map((d) => {
         const data = d.data();
+        const payload = extractFirestorePayload(data);
         return {
           id: d.id,
           name: data.name || d.id,
-          updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || data.payload?.savedAt || null,
-          teamCount: data.payload?.teams?.length || 0,
-          drawn: !!data.payload?.drawn,
+          updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || payload?.savedAt || null,
+          teamCount: payload?.teams?.length || 0,
+          drawn: !!payload?.drawn,
         };
       });
     res.json({ tournaments });
@@ -596,18 +588,13 @@ app.post("/api/tournaments", async (req, res) => {
   const payload = emptyTournamentPayload();
   payload.tournamentName = name;
   const now = new Date().toISOString();
-  await admin
-    .firestore()
-    .collection(FIRESTORE_COLLECTION)
-    .doc(id)
-    .set({
-      ownerUid: auth.decoded.uid,
-      ownerEmail: auth.decoded.email || null,
-      name,
-      payload,
-      createdAt: now,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  const createFields = buildFirestoreWriteFields(admin, payload, {
+    ownerUid: auth.decoded.uid,
+    ownerEmail: auth.decoded.email || null,
+    name,
+    createdAt: now,
+  });
+  await admin.firestore().collection(FIRESTORE_COLLECTION).doc(id).set(createFields);
   res.json({ ok: true, id, name, publicUrl: `index.html?t=${encodeURIComponent(id)}` });
 });
 
@@ -745,16 +732,15 @@ app.post("/api/tournaments/:id/publish", async (req, res) => {
       ? auth.decoded.uid
       : meta.ownerUid;
   try {
-    await ref.set(
-      {
-        payload,
-        ownerUid,
-        ownerEmail: meta.ownerEmail || auth.decoded.email || null,
-        name: payload.tournamentName || meta.name || id,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const writeFields = buildFirestoreWriteFields(admin, payload, {
+      ownerUid,
+      ownerEmail: meta.ownerEmail || auth.decoded.email || null,
+      name: payload.tournamentName || meta.name || id,
+    });
+    if (!writeFields) {
+      return res.status(400).json({ error: "Payload inválido para publicar." });
+    }
+    await ref.set(writeFields, { merge: true });
     res.json({
       ok: true,
       firestoreOk: true,

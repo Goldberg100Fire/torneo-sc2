@@ -298,6 +298,45 @@ export function createTournamentLib(options = {}) {
     return mergePayload(local, cloud);
   }
 
+  /** Quita undefined y tipos no serializables (Firestore / JSON). */
+  function sanitizePayloadForStorage(p) {
+    if (p == null || typeof p !== "object") return null;
+    return JSON.parse(JSON.stringify(p));
+  }
+
+  /** Firestore no admite arrays anidados (p. ej. bracket.wb); guardar como JSON string. */
+  function encodePayloadForFirestoreDoc(p) {
+    const clean = sanitizePayloadForStorage(p);
+    if (!clean) return null;
+    return { payloadEncoded: JSON.stringify(clean) };
+  }
+
+  function decodePayloadFromFirestore(docData) {
+    if (!docData || typeof docData !== "object") return null;
+    const encoded = docData.payloadEncoded;
+    if (typeof encoded === "string" && encoded.length) {
+      try {
+        const parsed = JSON.parse(encoded);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {
+        /* siguiente fuente */
+      }
+    }
+    if (docData.payload != null) {
+      if (typeof docData.payload === "string") {
+        try {
+          const parsed = JSON.parse(docData.payload);
+          if (parsed && typeof parsed === "object") return parsed;
+        } catch {
+          /* siguiente fuente */
+        }
+      }
+      if (typeof docData.payload === "object") return docData.payload;
+    }
+    if (docData.data != null && typeof docData.data === "object") return docData.data;
+    return null;
+  }
+
   /** Bloquea si el lado depende de un feed que aún no tiene ganador/perdedor. */
   function feedBlocksSide(match, side, resolveFeed) {
     const feedObj = side === "A" ? match.feedA : match.feedB;
@@ -323,5 +362,8 @@ export function createTournamentLib(options = {}) {
     mergePayload,
     choosePayload,
     feedBlocksSide,
+    sanitizePayloadForStorage,
+    encodePayloadForFirestoreDoc,
+    decodePayloadFromFirestore,
   };
 }
