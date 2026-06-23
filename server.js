@@ -172,13 +172,38 @@ async function writeFirestoreTournamentPayloadById(documentId, payload, extra = 
   try {
     const firestore = admin.firestore();
     const ref = firestore.collection(FIRESTORE_COLLECTION).doc(documentId);
+    const snap = await ref.get();
+    const current = snap.exists
+      ? snap.data().payload != null
+        ? snap.data().payload
+        : snap.data().data
+      : null;
+    const needsFirstPublish =
+      tournamentLib.isPubliclyListable(payload) && !tournamentLib.isPubliclyListable(current);
+    const useDirectSet =
+      options.force ||
+      needsFirstPublish ||
+      (isUserTournamentId(documentId) && tournamentLib.isPubliclyListable(payload));
+
+    if (useDirectSet) {
+      await ref.set(
+        {
+          payload,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          ...extra,
+        },
+        { merge: true }
+      );
+      return true;
+    }
+
     let wrote = false;
     await firestore.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (snap.exists && !options.force) {
-        const doc = snap.data();
-        const current = doc.payload != null ? doc.payload : doc.data;
-        if (isStaleTournamentWrite(payload, current)) return;
+      const txSnap = await tx.get(ref);
+      if (txSnap.exists) {
+        const doc = txSnap.data();
+        const cur = doc.payload != null ? doc.payload : doc.data;
+        if (isStaleTournamentWrite(payload, cur)) return;
       }
       wrote = true;
       tx.set(
@@ -272,8 +297,11 @@ async function verifyCanWriteTournament(decoded, tournamentId = LEGACY_TOURNAMEN
     .doc(tournamentId)
     .get();
   if (!snap.exists) return false;
-  const ownerUid = snap.data()?.ownerUid;
+  const doc = snap.data();
+  const ownerUid = doc?.ownerUid;
   if (ownerUid === decoded.uid) return true;
+  const ownerEmail = normalizeEmail(doc?.ownerEmail);
+  if (ownerEmail && ownerEmail === normalizeEmail(decoded.email)) return true;
   if (!ownerUid && (await verifyEditor(decoded))) return true;
   return false;
 }
@@ -607,6 +635,15 @@ app.put("/api/tournaments/:id", async (req, res) => {
   if (auth.error) return res.status(auth.status).json({ error: auth.error });
   const canWrite = await verifyCanWriteTournament(auth.decoded, id);
   if (!canWrite) {
+    const meta = await readFirestoreTournamentPayloadById(id);
+    console.warn(
+      "PUT torneo denegado:",
+      id,
+      "uid=",
+      auth.decoded.uid,
+      "owner=",
+      meta?.meta?.ownerUid
+    );
     return res.status(403).json({ error: "No tienes permiso para guardar este torneo." });
   }
   const payload = req.body;
@@ -635,6 +672,26 @@ app.put("/api/tournaments/:id", async (req, res) => {
     },
     { force: force || needsFirstPublish }
   );
+  if (!firestoreOk && needsFirstPublish) {
+    console.warn("PUT torneo: reintento directo Firestore", id);
+    const retryOk = await writeFirestoreTournamentPayloadById(
+      id,
+      payload,
+      {
+        name: payload.tournamentName || current?.meta?.name || "Mi torneo",
+        ownerUid: current?.meta?.ownerUid || auth.decoded.uid,
+      },
+      { force: true }
+    );
+    res.json({
+      ok: true,
+      updatedAt,
+      firestoreOk: retryOk,
+      published: !!tournamentLib.isPubliclyListable(payload),
+      retried: !firestoreOk && retryOk,
+    });
+    return;
+  }
   res.json({ ok: true, updatedAt, firestoreOk, published: !!tournamentLib.isPubliclyListable(payload) });
 });
 
